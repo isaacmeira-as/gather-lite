@@ -6,6 +6,29 @@ import { initUI } from "./ui/index";
 import { spaces, getToken, setToken, ApiError } from "./api";
 import { renderHome, renderInvite, authBox, currentUser } from "./pages/home";
 import { $, el, esc } from "./ui/common";
+import { avatarEditor } from "./ui/avatar";
+import { normalizeAvatar } from "../shared/avatar";
+
+const PICKED_KEY = "gather-lite:picked";
+/** Gather-style "choose your character" screen shown before entering a space. */
+function characterPicker(user: any, spaceName: string): Promise<void> {
+  return new Promise((resolve) => {
+    const ov = el(`<div class="overlay"><div class="card"><h1>Seu personagem</h1><p class="muted">Como você quer aparecer em <b>${esc(spaceName)}</b>? Dá para mudar depois no botão 🧑 da barra.</p>
+      <label>Nome <input name="name" maxlength="24" /></label><div class="editor"></div>
+      <button class="primary wide-btn" style="margin-top:12px">Entrar</button><p class="error"></p></div></div>`);
+    (ov.querySelector('[name="name"]') as HTMLInputElement).value = user.name;
+    const ed = avatarEditor(ov.querySelector(".editor") as HTMLElement, normalizeAvatar(user.avatar), () => {});
+    ov.querySelector("button.primary")!.addEventListener("click", async () => {
+      const { auth } = await import("./api");
+      const name = (ov.querySelector('[name="name"]') as HTMLInputElement).value.trim() || user.name;
+      try { await auth.update({ name, avatar: ed.get() }); } catch (e: any) { ov.querySelector(".error")!.textContent = e.message; return; }
+      try { localStorage.setItem(PICKED_KEY, "1"); } catch {}
+      ov.remove();
+      resolve();
+    });
+    app.appendChild(ov);
+  });
+}
 
 const app = $("#app");
 let game: Phaser.Game | null = null;
@@ -42,6 +65,9 @@ async function enterSpace(slug: string) {
     app.appendChild(el(`<div class="overlay"><div class="card"><h1>Sem acesso</h1><p class="muted">${esc(msg)}</p><a href="/">voltar</a></div></div>`));
     return;
   }
+  let picked = false;
+  try { picked = localStorage.getItem(PICKED_KEY) === "1"; } catch {}
+  if (!picked && !qs.get("guest")) await characterPicker(user, info.name);
   const mapId = qs.get("map") && info.maps.some((x) => x.id === qs.get("map")) ? qs.get("map")! : (info.maps.find((x) => x.is_default) ?? info.maps[0]).id;
   const loading = el(`<div class="overlay"><div class="card center"><p>Entrando em <b>${esc(info.name)}</b>…</p></div></div>`);
   app.appendChild(loading);

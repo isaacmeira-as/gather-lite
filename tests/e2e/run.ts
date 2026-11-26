@@ -58,6 +58,7 @@ interface Session { page: Page; ctx: BrowserContext; errors: string[] }
 async function open(browser: Browser, url: string, token?: string, opts: any = {}): Promise<Session> {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, ...opts });
   if (token) await ctx.addInitScript((t) => localStorage.setItem("gather-lite:token", t), token);
+  await ctx.addInitScript(() => localStorage.setItem("gather-lite:picked", "1")); // skip the character picker
   const page = await ctx.newPage();
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
@@ -105,6 +106,25 @@ async function main() {
     assert((await me(s.page)).role === "owner", "creator is owner");
     assert((await s.page.textContent("#space-name"))!.includes("Alice"), "space name in topbar");
     await s.ctx.close();
+  });
+
+  await step("character picker appears before the first entry and the avatar button edits it in-game", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    await ctx.addInitScript((t) => localStorage.setItem("gather-lite:token", t), aliceToken);
+    const page = await ctx.newPage();
+    await page.goto(`${BASE}/s/${slug}`);
+    await page.waitForSelector(".overlay .avatar-editor");
+    await page.click('.avatar-editor .chip:has-text("Chapéu")');
+    await page.click(".overlay button.primary");
+    await page.waitForFunction(() => (window as any).__scene?.me, null, { timeout: 15000 });
+    await waitFor(async () => JSON.parse((await me(page)).avatar).accessory === 2, "picked accessory applied");
+    await page.click('#toolbar button[data-action="avatar"]');
+    await page.waitForSelector("#modal:not([hidden]) .avatar-editor");
+    await page.click('.avatar-editor .chip:has-text("Coroa")');
+    await page.click("#modal button.primary");
+    await waitFor(async () => JSON.parse((await me(page)).avatar).accessory === 4, "in-game edit applied");
+    await page.screenshot({ path: path.join(SHOTS, "avatar.png") });
+    await ctx.close();
   });
 
   await step("login form works and wrong password is rejected", async () => {

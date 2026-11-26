@@ -49,7 +49,7 @@ export async function renderHome(root: HTMLElement) {
     await authBox(box, { allowGuest: false });
     return renderHome(root);
   }
-  const page = el(`<div class="home"><header><h1>🏢 Gather Lite</h1><span class="muted">${esc(user.name)}${user.isGuest ? " (visitante)" : ""}</span><button class="sm" data-a="profile">Perfil</button><button class="sm" data-a="logout">Sair</button></header>
+  const page = el(`<div class="home"><header><h1>🏢 Gather Lite</h1><span class="muted">${esc(user.name)}${user.isGuest ? " (visitante)" : ""}</span><button class="sm" data-a="profile">🧑 Meu personagem</button><button class="sm" data-a="logout">Sair</button></header>
     <h2>Seus espaços</h2><div class="grid spaces"></div>
     ${user.isGuest ? '<p class="muted">Visitantes não criam espaços. <a href="#" data-a="logout">Crie uma conta</a> para ter o seu.</p>' : `<h2>Criar espaço</h2>
     <form class="card create row" style="max-width:none"><input name="name" placeholder="Nome do espaço" required maxlength="60" style="flex:1;min-width:160px" />
@@ -86,7 +86,7 @@ export async function renderHome(root: HTMLElement) {
 }
 
 export function profileDialog(root: HTMLElement, user: User) {
-  const ov = el(`<div class="overlay"><div class="card"><h1>Seu perfil</h1><label>Nome <input name="name" maxlength="24" /></label><div class="editor"></div><div class="row" style="margin-top:12px"><button class="primary">Salvar</button><button data-a="cancel">Cancelar</button></div><p class="error"></p></div></div>`);
+  const ov = el(`<div class="overlay"><div class="card"><h1>Seu personagem</h1><label>Nome <input name="name" maxlength="24" /></label><div class="editor"></div><div class="row" style="margin-top:12px"><button class="primary">Salvar</button><button data-a="cancel">Cancelar</button></div><p class="error"></p></div></div>`);
   (ov.querySelector('[name="name"]') as HTMLInputElement).value = user.name;
   const ed = avatarEditor(ov.querySelector(".editor") as HTMLElement, normalizeAvatar(user.avatar), () => {});
   ov.querySelector("button.primary")!.addEventListener("click", async () => {

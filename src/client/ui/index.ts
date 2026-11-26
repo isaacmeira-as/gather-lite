@@ -47,6 +47,7 @@ export function initUI(space: SpaceInfo) {
   // ---- toolbar
   document.querySelectorAll<HTMLButtonElement>("#toolbar button").forEach((b) => b.addEventListener("click", () => {
     const a = b.dataset.action!;
+    if (a === "avatar") openProfile();
     if (a === "chat") togglePanel("chat");
     if (a === "participants") togglePanel("participants");
     if (a === "members") bus.emit("ui:toggle-members");
@@ -120,7 +121,7 @@ function openProfile() {
     toast("Perfil salvo");
   });
   wrap.querySelector('[data-a="logout"]')!.addEventListener("click", () => { localStorage.removeItem("gather-lite:token"); location.href = "/"; });
-  openModal("Seu perfil", wrap);
+  openModal("Seu personagem", wrap);
 }
 
 function startMinimap() {
