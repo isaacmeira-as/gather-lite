@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gather Lite</title>
+  <link rel="stylesheet" href="/src/client/style.css" />
+</head>
+<body>
+  <div id="game"></div>
+
+  <div id="login" class="overlay">
+    <form id="login-form" class="card">
+      <h1>Gather Lite</h1>
+      <p class="muted">Escritório virtual 2D. Escolha seu nome e avatar.</p>
+      <label>Nome <input id="login-name" maxlength="24" autocomplete="off" required placeholder="Seu nome" /></label>
+      <div class="row">
+        <div>
+          <span class="label">Cor</span>
+          <div id="login-colors" class="swatches"></div>
+        </div>
+        <div>
+          <span class="label">Estilo</span>
+          <div id="login-skins" class="swatches"></div>
+        </div>
+        <div class="preview"><canvas id="login-preview" width="64" height="80"></canvas></div>
+      </div>
+      <button type="submit" id="login-submit">Entrar</button>
+      <p id="login-error" class="error"></p>
+    </form>
+  </div>
+
+  <div id="hud" hidden>
+    <div id="topbar">
+      <div class="brand">🏢 Gather Lite</div>
+      <div id="zone-indicator" class="pill">Área comum</div>
+      <div class="spacer"></div>
+      <div id="latency" class="muted small"></div>
+      <select id="status-select" title="Status">
+        <option value="available">🟢 Disponível</option>
+        <option value="busy">🟡 Ocupado</option>
+        <option value="dnd">🔴 Não perturbe</option>
+      </select>
+      <div id="me-name" class="pill"></div>
+    </div>
+
+    <div id="toolbar">
+      <button data-action="emotes" title="Emotes (E)">😀</button>
+      <button data-action="chat" title="Chat (Enter)">💬</button>
+      <button data-action="participants" title="Participantes (P)">👥</button>
+      <button data-action="minimap" title="Minimapa (M)">🗺️</button>
+      <button data-action="build" title="Modo construção (B)">🔨</button>
+      <button data-action="help" title="Ajuda (?)">❔</button>
+    </div>
+
+    <div id="emote-bar" hidden></div>
+
+    <div id="interact-hint" hidden><kbd>X</kbd> <span></span></div>
+
+    <aside id="chat" class="panel" hidden>
+      <header><span>Chat</span><button class="close" data-close="chat">×</button></header>
+      <div id="chat-messages"></div>
+      <form id="chat-form">
+        <select id="chat-scope">
+          <option value="nearby">Perto</option>
+          <option value="everyone">Todos</option>
+        </select>
+        <input id="chat-input" placeholder="Mensagem… (Enter)" autocomplete="off" maxlength="500" />
+        <button type="submit">➤</button>
+      </form>
+      <div id="chat-dm" class="muted small" hidden>Mensagem direta para <b></b> <a href="#" id="chat-dm-cancel">cancelar</a></div>
+    </aside>
+
+    <aside id="participants" class="panel" hidden>
+      <header><span>Participantes <small id="participants-count"></small></span><button class="close" data-close="participants">×</button></header>
+      <div class="muted small" style="padding:6px 10px">Perto de você: <span id="nearby-list">ninguém</span></div>
+      <ul id="participants-list"></ul>
+    </aside>
+
+    <div id="player-card" class="card small-card" hidden>
+      <div class="pc-name"></div>
+      <div class="pc-meta muted small"></div>
+      <div class="pc-actions">
+        <button data-pc="locate">📍 Localizar</button>
+        <button data-pc="dm">✉️ Mensagem</button>
+        <button data-pc="close">Fechar</button>
+      </div>
+    </div>
+
+    <div id="build-panel" class="panel" hidden>
+      <header><span>Construção</span><button class="close" data-close="build">×</button></header>
+      <div class="tabs"><button data-layer="objects" class="active">Objetos</button><button data-layer="floor">Piso</button></div>
+      <div id="build-palette"></div>
+      <p class="muted small">Clique para colocar, botão direito para apagar. Tudo é sincronizado e salvo.</p>
+      <p class="muted small" id="build-coords"></p>
+    </div>
+
+    <canvas id="minimap" width="176" height="128" hidden></canvas>
+
+    <div id="toasts"></div>
+  </div>
+
+  <div id="modal" class="overlay" hidden>
+    <div class="card modal-card">
+      <header><span id="modal-title"></span><button class="close" id="modal-close">×</button></header>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <div id="help" class="overlay" hidden>
+    <div class="card">
+      <header><span>Atalhos</span><button class="close" id="help-close">×</button></header>
+      <table class="help-table">
+        <tr><td><kbd>↑↓←→</kbd> / <kbd>WASD</kbd></td><td>andar</td></tr>
+        <tr><td>clique no mapa</td><td>andar até lá</td></tr>
+        <tr><td><kbd>X</kbd></td><td>interagir com objeto</td></tr>
+        <tr><td><kbd>Enter</kbd></td><td>falar</td></tr>
+        <tr><td><kbd>1</kbd>…<kbd>9</kbd> / <kbd>E</kbd></td><td>emotes</td></tr>
+        <tr><td><kbd>P</kbd></td><td>participantes</td></tr>
+        <tr><td><kbd>M</kbd></td><td>minimapa</td></tr>
+        <tr><td><kbd>B</kbd></td><td>modo construção</td></tr>
+        <tr><td><kbd>+</kbd> / <kbd>-</kbd> / scroll</td><td>zoom</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td>fechar painéis</td></tr>
+      </table>
+      <p class="muted small">Quem está perto de você (raio de 4 tiles) ouve o chat "Perto". Dentro de uma zona colorida, só quem está na mesma zona ouve. No tile amarelo do palco (spotlight), todo mundo ouve.</p>
+    </div>
+  </div>
+
+  <script type="module" src="/src/client/main.ts"></script>
+</body>
+</html>
