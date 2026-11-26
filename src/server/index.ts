@@ -27,7 +27,7 @@ if (fs.existsSync(dist)) {
 }
 
 const httpServer = http.createServer(app);
-const gameServer = new Server({ transport: new WebSocketTransport({ server: httpServer }) });
+const gameServer = new Server({ transport: new WebSocketTransport({ server: httpServer, maxPayload: 2 * 1024 * 1024 }) });
 gameServer.define("office", OfficeRoom).filterBy(["spaceId", "mapId"]);
 
 gameServer.listen(PORT).then(() => {

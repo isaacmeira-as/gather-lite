@@ -10,7 +10,17 @@ export const can = {
   chat: (r: Role | null) => !!r,
 };
 
-export interface SpaceRow { id: string; slug: string; name: string; owner_id: string; is_private: number; created_at: number }
+export interface SpaceRow { id: string; slug: string; name: string; owner_id: string; is_private: number; created_at: number; location: string; weather_mode: string; time_mode: string }
+export const WEATHER_MODES = ["auto", "clear", "cloudy", "fog", "rain", "storm", "snow"];
+export const TIME_MODES = ["auto", "day", "night"];
+export function updateSpaceSettings(spaceId: string, patch: { name?: string; isPrivate?: boolean; location?: string; weatherMode?: string; timeMode?: string }) {
+  const db = getDb();
+  if (patch.name !== undefined) db.prepare("UPDATE spaces SET name = ? WHERE id = ?").run(patch.name, spaceId);
+  if (patch.isPrivate !== undefined) db.prepare("UPDATE spaces SET is_private = ? WHERE id = ?").run(patch.isPrivate ? 1 : 0, spaceId);
+  if (patch.location !== undefined) db.prepare("UPDATE spaces SET location = ? WHERE id = ?").run(patch.location, spaceId);
+  if (patch.weatherMode !== undefined && WEATHER_MODES.includes(patch.weatherMode)) db.prepare("UPDATE spaces SET weather_mode = ? WHERE id = ?").run(patch.weatherMode, spaceId);
+  if (patch.timeMode !== undefined && TIME_MODES.includes(patch.timeMode)) db.prepare("UPDATE spaces SET time_mode = ? WHERE id = ?").run(patch.timeMode, spaceId);
+}
 export interface MapRow { id: string; space_id: string; name: string; data: string; is_default: number; created_at: number }
 
 export function slugify(name: string) {

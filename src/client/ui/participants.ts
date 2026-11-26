@@ -4,6 +4,7 @@ import { $, esc, toast, ROLE_LABEL, STATUS_LABEL } from "./common";
 import { setDm, togglePanel } from "./chat";
 import { beep } from "./notify";
 import type { OfficeScene } from "../scenes/OfficeScene";
+import { avatarThumb } from "./thumbs";
 
 let scene: OfficeScene | null = null;
 
@@ -49,14 +50,17 @@ export function renderParticipants() {
   list.innerHTML = players.map((p) => {
     const zone = p.zone ? scene?.mapData.zones.find((z) => z.id === p.zone)?.name : "";
     const near = scene?.nearbyIds.has(p.id);
-    return `<li data-id="${p.id}" class="${p.connected ? "" : "away"}">
-      <span class="dot" style="background:${esc(p.color)}"></span>
+    return `<li data-id="${p.id}" class="${p.connected ? "" : "away"}" data-avatar="${esc(p.avatar)}">
+      <span class="thumb-slot"></span>
       <div style="flex:1"><div>${esc(p.name)} ${p.id === net.sessionId ? '<span class="you">(você)</span>' : ""} <span class="role ${p.role}">${ROLE_LABEL[p.role] ?? p.role}</span> ${near ? "👂" : ""} ${p.ghost ? "👻" : ""}</div>
       <div class="meta">${STATUS_LABEL[p.status] ?? p.status}${zone ? " · " + esc(zone) : ""}${p.connected ? "" : " · reconectando…"}</div></div>
       ${scene?.locateTarget === p.id ? "📍" : ""}${scene?.followTarget === p.id ? "🚶" : ""}
     </li>`;
   }).join("");
-  list.querySelectorAll<HTMLLIElement>("li").forEach((li) => li.addEventListener("click", () => { if (li.dataset.id !== net.sessionId) openPlayerCard(li.dataset.id!); else bus.emit("ui:profile"); }));
+  list.querySelectorAll<HTMLLIElement>("li").forEach((li) => {
+    li.querySelector(".thumb-slot")!.replaceWith(avatarThumb(li.dataset.avatar ?? "{}"));
+    li.addEventListener("click", () => { if (li.dataset.id !== net.sessionId) openPlayerCard(li.dataset.id!); else bus.emit("ui:profile"); });
+  });
 }
 
 export function openPlayerCard(id: string) {
@@ -65,6 +69,10 @@ export function openPlayerCard(id: string) {
   const card = $("#player-card");
   card.dataset.id = id;
   card.querySelector(".pc-name")!.textContent = p.name;
+  card.querySelector(".pc-head")?.remove();
+  const head = document.createElement("div"); head.className = "pc-head";
+  head.appendChild(avatarThumb(p.avatar, 1.5));
+  card.prepend(head);
   const zone = p.zone ? scene?.mapData.zones.find((z) => z.id === p.zone)?.name : "área comum";
   card.querySelector(".pc-meta")!.textContent = `${ROLE_LABEL[p.role] ?? p.role} · ${STATUS_LABEL[p.status] ?? p.status} · ${zone}`;
   const actions = card.querySelector(".pc-actions") as HTMLElement;

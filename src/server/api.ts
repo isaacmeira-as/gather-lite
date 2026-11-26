@@ -4,6 +4,8 @@ import { hashPassword, verifyPassword, signToken, toAuthUser, createGuest, authM
 import * as S from "./spaces";
 import { normalizeAvatar } from "../shared/avatar";
 import { normalizeMap } from "../shared/map";
+import { geocode, invalidate } from "./weather";
+import { matchMaker } from "@colyseus/core";
 
 export const api = Router();
 api.use(authMiddleware);
@@ -65,7 +67,7 @@ api.post("/spaces", requireAuth, (req: AuthedRequest, res) => {
 });
 
 function publicSpace(s: S.SpaceRow, role: S.Role | null) {
-  return { id: s.id, slug: s.slug, name: s.name, isPrivate: !!s.is_private, ownerId: s.owner_id, role, maps: S.listMaps(s.id) };
+  return { id: s.id, slug: s.slug, name: s.name, isPrivate: !!s.is_private, ownerId: s.owner_id, role, maps: S.listMaps(s.id), location: s.location, weatherMode: s.weather_mode, timeMode: s.time_mode };
 }
 
 function loadSpace(req: AuthedRequest, res: any, minRole?: S.Role) {
@@ -85,11 +87,24 @@ api.get("/spaces/:slug", (req: AuthedRequest, res) => {
   res.json({ space: publicSpace(space, role) });
 });
 
-api.patch("/spaces/:slug", requireAuth, (req: AuthedRequest, res) => {
+api.patch("/spaces/:slug", requireAuth, async (req: AuthedRequest, res) => {
   const ctx = loadSpace(req, res, "owner"); if (!ctx) return;
-  const { name, isPrivate } = req.body ?? {};
-  if (name !== undefined) getDb().prepare("UPDATE spaces SET name = ? WHERE id = ?").run(String(name).trim().slice(0, 60) || ctx.space.name, ctx.space.id);
-  if (isPrivate !== undefined) getDb().prepare("UPDATE spaces SET is_private = ? WHERE id = ?").run(isPrivate ? 1 : 0, ctx.space.id);
+  const { name, isPrivate, location, weatherMode, timeMode } = req.body ?? {};
+  const patch: any = {};
+  if (name !== undefined) patch.name = String(name).trim().slice(0, 60) || ctx.space.name;
+  if (isPrivate !== undefined) patch.isPrivate = !!isPrivate;
+  if (location !== undefined) {
+    const loc = String(location).trim().slice(0, 80);
+    if (!loc) return bad(res, "informe uma cidade");
+    // Only reject when the geocoder answered "not found"; without internet we keep the name (weather falls back to simulated).
+    try { await geocode(loc); } catch (e: any) { if (/não encontrada/.test(String(e?.message))) return bad(res, "cidade não encontrada"); }
+    patch.location = loc;
+  }
+  if (weatherMode !== undefined) patch.weatherMode = String(weatherMode);
+  if (timeMode !== undefined) patch.timeMode = String(timeMode);
+  S.updateSpaceSettings(ctx.space.id, patch);
+  invalidate(ctx.space.id);
+  await matchMaker.presence.publish(`space:${ctx.space.id}`, "settings");
   res.json({ space: publicSpace(S.getSpace(ctx.space.id)!, ctx.role) });
 });
 

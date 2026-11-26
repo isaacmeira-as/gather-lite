@@ -89,6 +89,11 @@ function migrate(db: DatabaseSync) {
       PRIMARY KEY (space_id, key)
     );
   `);
+  // Additive migrations (columns added after the first release).
+  const cols = new Set((db.prepare("PRAGMA table_info(spaces)").all() as any[]).map((c) => c.name));
+  if (!cols.has("location")) db.exec("ALTER TABLE spaces ADD COLUMN location TEXT NOT NULL DEFAULT 'São Paulo'");
+  if (!cols.has("weather_mode")) db.exec("ALTER TABLE spaces ADD COLUMN weather_mode TEXT NOT NULL DEFAULT 'auto'");
+  if (!cols.has("time_mode")) db.exec("ALTER TABLE spaces ADD COLUMN time_mode TEXT NOT NULL DEFAULT 'auto'");
 }
 
 export const now = () => Date.now();

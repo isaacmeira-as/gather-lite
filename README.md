@@ -63,7 +63,12 @@ joystick mobile.
 | Movimento | ✅ grade, previsão no cliente, colisão entre avatares, modo fantasma (G), sentar |
 | Mobile | ✅ joystick virtual, layout responsivo |
 | Reconexão | ✅ 20 s para voltar sem perder o avatar; segunda aba substitui a primeira |
+| Relógio e clima | ✅ hora local do espaço, clima real por cidade (Open-Meteo, sem chave) com chuva, neve, neblina, nuvens e tempestade; ciclo dia/noite pelo nascer e pôr do sol; dono pode fixar clima e hora |
+| Visual | ✅ paredes com face e topo, objetos altos com profundidade, tiles animados (água, fonte, telas), iluminação com luminárias e janelas, sombras, contorno nos avatares, ciclo de caminhada em 4 quadros, partículas, transições entre salas, sons sintetizados |
+| Onboarding | ✅ tour de 4 passos na primeira visita, dicas nos botões |
 | Vídeo / áudio | ❌ de propósito |
+
+Sem internet o clima cai num modo simulado (indicado no relógio). Em automação (Playwright) os efeitos pesados ficam desligados, a não ser com `?fx=1`.
 
 ## Arquitetura
 

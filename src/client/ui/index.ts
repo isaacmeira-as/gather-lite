@@ -12,7 +12,9 @@ import { initBuild, toggleBuild } from "./build";
 import { initMembers } from "./members";
 import { initJoystick } from "./joystick";
 import { avatarEditor } from "./avatar";
-import { setMuted, isMuted } from "./notify";
+import { setMuted, isMuted, sfx } from "./notify";
+import { startCoach } from "./coach";
+import type { WeatherView } from "../scenes/fx";
 import { auth } from "../api";
 import type { SpaceInfo } from "../api";
 
@@ -33,6 +35,25 @@ export function initUI(space: SpaceInfo) {
   $("#me-button").addEventListener("click", () => bus.emit("ui:profile"));
   $<HTMLSelectElement>("#status-select").addEventListener("change", (e) => net.setStatus((e.target as HTMLSelectElement).value));
   bus.on("latency", (ms: number) => { $("#latency").textContent = `${ms} ms`; });
+  const WX_ICON: Record<string, string> = { clear: "☀️", cloudy: "⛅", fog: "🌫️", rain: "🌧️", storm: "⛈️", snow: "❄️" };
+  let lastWeather: WeatherView | null = null;
+  const renderClock = (w: WeatherView | null) => {
+    lastWeather = w ?? lastWeather;
+    const el = $("#clock");
+    const tz = lastWeather?.timezone;
+    let time = "--:--";
+    try { time = new Intl.DateTimeFormat("pt-BR", { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(new Date()); } catch { time = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }); }
+    el.querySelector(".time")!.textContent = time;
+    if (lastWeather) {
+      const night = !lastWeather.isDay && lastWeather.kind === "clear";
+      el.querySelector(".wx")!.textContent = night ? "🌙" : (WX_ICON[lastWeather.kind] ?? "⛅");
+      el.querySelector(".temp")!.textContent = `${lastWeather.temp}° · ${lastWeather.city}${lastWeather.source === "simulado" ? " (simulado)" : ""}`;
+      el.title = `${lastWeather.city}: ${lastWeather.kind}, ${lastWeather.temp}°C, umidade ${lastWeather.humidity ?? "-"}%, vento ${lastWeather.wind ?? "-"} km/h. Nasce ${lastWeather.sunrise}, põe ${lastWeather.sunset}. Fonte: ${lastWeather.source}.`;
+    }
+  };
+  bus.on("weather", renderClock);
+  bus.on("clock", renderClock);
+  renderClock(null);
   bus.on("me:moved", (info: { spotlight: boolean; zone: Zone | null }) => {
     const e = $("#zone-indicator");
     if (info.spotlight) { e.textContent = "🎤 Spotlight: todos ouvem você"; e.style.background = "#854d0e"; }
@@ -40,12 +61,14 @@ export function initUI(space: SpaceInfo) {
     else { e.textContent = "Área comum"; e.style.background = ""; }
   });
   bus.on("zone", (z: { id: string; name: string }) => toast(z.id ? `Você entrou em ${z.name}` : "Você saiu da zona privada"));
-  bus.on("portal", async (p: { mapId: string; mapName: string; x: number; y: number }) => { toast(`Indo para ${p.mapName}…`, 1500); await net.switchMap(p.mapId, p.x, p.y); });
+  bus.on("portal", async (p: { mapId: string; mapName: string; x: number; y: number }) => { sfx("portal"); toast(`Indo para ${p.mapName}…`, 1500); await net.switchMap(p.mapId, p.x, p.y); });
+  bus.on("system", (m: { text: string }) => { if (/entrou em/.test(m.text)) sfx("join"); });
   bus.on("ghost", (g: boolean) => { $('#toolbar button[data-action="ghost"]').classList.toggle("active", g); toast(g ? "👻 Modo fantasma: você atravessa pessoas" : "Modo fantasma desligado", 1500); });
   if (!net.canBuild) $('#toolbar button[data-action="build"]').hidden = true; else $('#toolbar button[data-action="build"]').hidden = false;
 
   // ---- toolbar
   document.querySelectorAll<HTMLButtonElement>("#toolbar button").forEach((b) => b.addEventListener("click", () => {
+    sfx("click");
     const a = b.dataset.action!;
     if (a === "avatar") openProfile();
     if (a === "chat") togglePanel("chat");
@@ -90,6 +113,14 @@ export function initUI(space: SpaceInfo) {
   initJoystick();
   startMinimap();
 
+  $("#build-tools").querySelectorAll<HTMLButtonElement>("[data-brush]").forEach((b) => b.addEventListener("click", () => {
+    $("#build-tools").querySelectorAll("[data-brush]").forEach((x) => x.classList.toggle("active", x === b));
+    bus.emit("ui:build", { brush: Number(b.dataset.brush) });
+  }));
+  $("#build-undo").addEventListener("click", () => bus.emit("ui:undo"));
+  bus.on("ui:toggle-help", () => {});
+  startCoach();
+
   bus.on("disconnected", (code: number) => { toast(`Conexão encerrada (${code}). Recarregue a página.`, 10000); $("#zone-indicator").textContent = "⚠️ desconectado"; });
 }
 
@@ -106,8 +137,9 @@ function openProfile() {
   let avatar: any = {};
   try { avatar = JSON.parse(me.avatar); } catch {}
   const wrap = el(`<div class="col"><label>Nome <input name="name" maxlength="24" value="" /></label><div class="editor"></div>
-    <label class="row"><input type="checkbox" name="mute" ${isMuted() ? "checked" : ""} /> Silenciar sons de notificação</label>
-    <div class="row"><button class="primary">Salvar</button><button data-a="logout">Sair da conta</button></div></div>`);
+    <label class="row"><input type="checkbox" name="mute" ${isMuted() ? "checked" : ""} /> Silenciar sons</label>
+    <div class="row"><button class="primary">Salvar</button><button data-a="tour">Rever o tour</button><button data-a="logout">Sair da conta</button></div></div>`);
+  wrap.querySelector('[data-a="tour"]')!.addEventListener("click", () => { closeModal(); startCoach(true); });
   (wrap.querySelector('[name="name"]') as HTMLInputElement).value = me.name;
   wrap.querySelector("input")!.addEventListener("keydown", (e) => e.stopPropagation());
   const ed = avatarEditor(wrap.querySelector(".editor") as HTMLElement, avatar, () => {});

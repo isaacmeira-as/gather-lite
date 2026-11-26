@@ -2,6 +2,8 @@ import { auth, spaces, getToken, setToken, User, ApiError } from "../api";
 import { $, esc, el } from "../ui/common";
 import { avatarEditor } from "../ui/avatar";
 import { randomAvatar, normalizeAvatar } from "../../shared/avatar";
+import { drawAvatarPreview } from "../textures/avatars";
+import { mapThumb } from "../ui/thumbs";
 
 export async function currentUser(): Promise<User | null> {
   if (!getToken()) return null;
@@ -14,7 +16,7 @@ export function authBox(root: HTMLElement, opts: { allowGuest: boolean; title?: 
     let mode: "login" | "register" | "guest" = opts.allowGuest ? "guest" : "login";
     const render = () => {
       root.innerHTML = "";
-      const card = el(`<form class="card"><h1>${esc(opts.title ?? "Gather Lite")}</h1><p class="muted">${esc(opts.intro ?? "Escritório virtual 2D para o seu time.")}</p>
+      const card = el(`<form class="card"><div class="login-hero"><canvas></canvas></div><h1>${esc(opts.title ?? "Gather Lite")}</h1><p class="muted">${esc(opts.intro ?? "Escritório virtual 2D para o seu time.")}</p>
         <div class="auth-tabs">${opts.allowGuest ? '<button type="button" data-m="guest">Visitante</button>' : ""}<button type="button" data-m="login">Entrar</button><button type="button" data-m="register">Criar conta</button></div>
         <div class="fields"></div><button type="submit" class="primary wide-btn">Continuar</button><p class="error"></p></form>`);
       card.querySelectorAll<HTMLButtonElement>("[data-m]").forEach((b) => { b.classList.toggle("active", b.dataset.m === mode); b.addEventListener("click", () => { mode = b.dataset.m as any; render(); }); });
@@ -34,6 +36,7 @@ export function authBox(root: HTMLElement, opts: { allowGuest: boolean; title?: 
           resolve(r.user);
         } catch (ex: any) { err.textContent = ex.message; }
       });
+      drawAvatarPreview(card.querySelector("canvas")!, randomAvatar(), 2);
       root.appendChild(card);
     };
     render();
@@ -50,6 +53,7 @@ export async function renderHome(root: HTMLElement) {
     return renderHome(root);
   }
   const page = el(`<div class="home"><header><h1>🏢 Gather Lite</h1><span class="muted">${esc(user.name)}${user.isGuest ? " (visitante)" : ""}</span><button class="sm" data-a="profile">🧑 Meu personagem</button><button class="sm" data-a="logout">Sair</button></header>
+    <div class="hero"><canvas></canvas><div><h1>Olá, ${esc(user.name)}!</h1><p>Seu escritório virtual: ande, converse por proximidade, use os objetos e monte as salas do seu jeito.</p></div></div>
     <h2>Seus espaços</h2><div class="grid spaces"></div>
     ${user.isGuest ? '<p class="muted">Visitantes não criam espaços. <a href="#" data-a="logout">Crie uma conta</a> para ter o seu.</p>' : `<h2>Criar espaço</h2>
     <form class="card create row" style="max-width:none"><input name="name" placeholder="Nome do espaço" required maxlength="60" style="flex:1;min-width:160px" />
@@ -57,6 +61,7 @@ export async function renderHome(root: HTMLElement) {
       <label class="row" style="margin:0"><input type="checkbox" name="private" /> privado</label><button class="primary">Criar</button><p class="error" style="width:100%"></p></form>`}
     <h2>Tem um convite?</h2><form class="row invite"><input name="link" placeholder="Cole o link ou código do convite" style="flex:1;min-width:200px" /><button>Entrar</button></form></div>`);
   root.appendChild(page);
+  drawAvatarPreview(page.querySelector(".hero canvas")!, normalizeAvatar(user.avatar), 2);
   page.querySelectorAll('[data-a="logout"]').forEach((b) => b.addEventListener("click", (e) => { e.preventDefault(); setToken(null); renderHome(root); }));
   page.querySelector('[data-a="profile"]')!.addEventListener("click", () => profileDialog(root, user));
 
@@ -64,9 +69,10 @@ export async function renderHome(root: HTMLElement) {
   const { spaces: list } = await spaces.list();
   grid.innerHTML = list.length ? "" : `<p class="muted">Nenhum espaço ainda.</p>`;
   for (const s of list) {
-    const c = el(`<div class="space-card"><div class="name">${esc(s.name)} ${s.isPrivate ? "🔒" : ""}</div><div class="muted small">/s/${esc(s.slug)} · ${s.members} membro(s) · você é ${esc(s.role)}</div></div>`);
+    const c = el(`<div class="space-card"><canvas></canvas><div class="body"><div class="name">${esc(s.name)} ${s.isPrivate ? "🔒" : ""}</div><div class="muted small">/s/${esc(s.slug)} · ${s.members} membro(s) · você é ${esc(({ owner: "dono", moderator: "moderador", member: "membro", guest: "visitante" } as any)[s.role] ?? s.role)}</div></div></div>`);
     c.addEventListener("click", () => (location.href = `/s/${s.slug}`));
     grid.appendChild(c);
+    spaces.get(s.slug).then(({ space }) => { const m = space.maps.find((x) => x.is_default) ?? space.maps[0]; return m ? spaces.map(s.slug, m.id) : null; }).then((r) => { if (r) mapThumb(c.querySelector("canvas")!, r.map.data); }).catch(() => {});
   }
   page.querySelector("form.create")?.addEventListener("submit", async (e) => {
     e.preventDefault();

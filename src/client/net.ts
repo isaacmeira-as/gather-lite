@@ -11,7 +11,7 @@ export interface InteractableView { id: string; x: number; y: number; kind: stri
 export interface PortalView { id: string; x: number; y: number; targetMapId: string; targetX: number; targetY: number; label: string }
 export interface OfficeStateView {
   spaceId: string; spaceName: string; mapId: string; mapName: string;
-  width: number; height: number; spawnX: number; spawnY: number;
+  width: number; height: number; spawnX: number; spawnY: number; weather: string; timeMode: string;
   floor: number[]; objects: number[];
   zones: Map<string, ZoneView>; interactables: Map<string, InteractableView>; portals: Map<string, PortalView>;
   players: Map<string, PlayerView>;
@@ -75,6 +75,8 @@ export class Net {
     if (this.switching) return;
     this.switching = true;
     const spaceId = this.state.spaceId;
+    bus.emit("map:leaving");
+    await new Promise((r) => setTimeout(r, 230));
     try {
       try { await this.room.leave(true); } catch {}
       await this.join({ spaceId, mapId, spawnX: x, spawnY: y });

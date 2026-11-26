@@ -58,6 +58,8 @@ export class OfficeState extends Schema {
   @type("string") mapName = "";
   @type("number") width = 0;
   @type("number") height = 0;
+  @type("string") weather = "";   // WeatherInfo JSON (+ mode overrides applied)
+  @type("string") timeMode = "auto";
   @type("number") spawnX = 0;
   @type("number") spawnY = 0;
   @type(["number"]) floor = new ArraySchema<number>();

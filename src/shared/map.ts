@@ -183,8 +183,15 @@ export function buildDefaultMap(): MapData {
   fillF(2, 2, 32, 23, F.WOOD);
   rectO(2, 2, 32, 23, O.WALL);
 
+  // Windows, paintings and signs on the outer/top walls (wall-mounted, still solid)
+  for (const wx of [5, 8, 11, 16, 19, 25, 30]) setO(wx, 2, O.WINDOW);
+  setO(15, 2, O.PAINTING); setO(24, 2, O.PAINTING); setO(31, 2, O.PAINTING);
+  setO(9, 2, O.SIGN);
+
   // Lobby
   fillF(3, 3, 10, 7, F.STONE);
+  setO(3, 5, O.LOCKER); setO(3, 6, O.LOCKER);
+  setO(7, 7, O.RUG_ROUND);
   setO(5, 4, O.DESK); setO(6, 4, O.DESK); setO(7, 4, O.COMPUTER);
   setO(3, 3, O.PLANT); setO(12, 3, O.PLANT);
   setO(3, 9, O.PLANT); setO(12, 9, O.PLANT);
@@ -221,6 +228,7 @@ export function buildDefaultMap(): MapData {
     }
   }
   setO(3, 11, O.BOOKSHELF); setO(4, 11, O.BOOKSHELF); setO(5, 11, O.BOOKSHELF);
+  setO(6, 11, O.CACTUS); setO(20, 11, O.PRINTER); setO(21, 11, O.WATER_COOLER);
   setO(19, 11, O.PLANT); setO(3, 17, O.PLANT);
 
   // Lounge
@@ -229,6 +237,7 @@ export function buildDefaultMap(): MapData {
   setO(23, 15, O.SOFA); setO(24, 15, O.SOFA); setO(25, 15, O.SOFA);
   setO(24, 13, O.TABLE);
   setO(31, 12, O.COFFEE); setO(32, 12, O.COFFEE);
+  setO(29, 12, O.KITCHEN); setO(30, 12, O.KITCHEN); setO(30, 11, O.FRIDGE); setO(32, 11, O.VENDING);
   setO(31, 16, O.PIANO); setO(28, 11, O.ARCADE); setO(29, 11, O.ARCADE);
   setO(32, 14, O.LAMP); setO(22, 17, O.PLANT);
   setO(33, 14, O.DOOR); // door to the garden (east wall)

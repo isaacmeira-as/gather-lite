@@ -36,9 +36,25 @@ async function render() {
     }
     body.appendChild(box);
     if (net.role === "owner") {
-      const priv = el(`<div class="col" style="margin-top:12px"><b>Espaço</b><label class="row"><input type="checkbox" ${net.spaceInfo?.isPrivate ? "checked" : ""} /> Privado (só entra com convite)</label><button class="sm danger">Apagar espaço</button></div>`);
-      priv.querySelector("input")!.addEventListener("change", async (e) => { const { space } = await spaces.update(slug, { isPrivate: (e.target as HTMLInputElement).checked }); net.spaceInfo = space; toast(space.isPrivate ? "Espaço agora é privado" : "Espaço agora é público"); });
-      priv.querySelector("button")!.addEventListener("click", async () => { if (confirm("Apagar este espaço e todas as salas? Não dá para desfazer.") && prompt("Digite APAGAR para confirmar") === "APAGAR") { await spaces.remove(slug); location.href = "/"; } });
+      const si = net.spaceInfo ?? {};
+      const priv = el(`<div class="col" style="margin-top:12px"><b>Espaço</b>
+        <label>Nome <input name="sname" maxlength="60" value="${esc(si.name ?? "")}" /></label>
+        <label class="row"><input type="checkbox" name="priv" ${si.isPrivate ? "checked" : ""} /> Privado (só entra com convite)</label>
+        <label>Cidade (hora e clima) <input name="loc" maxlength="80" value="${esc(si.location ?? "São Paulo")}" placeholder="São Paulo" /></label>
+        <div class="row"><label style="flex:1">Clima <select name="wx"><option value="auto">automático (real)</option><option value="clear">céu limpo</option><option value="cloudy">nublado</option><option value="fog">neblina</option><option value="rain">chuva</option><option value="storm">tempestade</option><option value="snow">neve</option></select></label>
+        <label style="flex:1">Hora <select name="tm"><option value="auto">automática</option><option value="day">sempre dia</option><option value="night">sempre noite</option></select></label></div>
+        <div class="row"><button class="sm primary" data-a="save">Salvar</button><button class="sm danger" data-a="del">Apagar espaço</button></div><p class="error"></p></div>`);
+      (priv.querySelector('[name="wx"]') as HTMLSelectElement).value = si.weatherMode ?? "auto";
+      (priv.querySelector('[name="tm"]') as HTMLSelectElement).value = si.timeMode ?? "auto";
+      priv.querySelectorAll("input").forEach((i) => i.addEventListener("keydown", (e) => e.stopPropagation()));
+      priv.querySelector('[data-a="save"]')!.addEventListener("click", async () => {
+        const v = (n: string) => (priv.querySelector(`[name="${n}"]`) as HTMLInputElement).value;
+        try {
+          const { space } = await spaces.update(slug, { name: v("sname"), isPrivate: (priv.querySelector('[name="priv"]') as HTMLInputElement).checked, location: v("loc"), weatherMode: v("wx"), timeMode: v("tm") });
+          net.spaceInfo = space; $("#space-name").textContent = space.name; toast("Configurações salvas");
+        } catch (e: any) { priv.querySelector(".error")!.textContent = e.message; }
+      });
+      priv.querySelector('[data-a="del"]')!.addEventListener("click", async () => { if (confirm("Apagar este espaço e todas as salas? Não dá para desfazer.") && prompt("Digite APAGAR para confirmar") === "APAGAR") { await spaces.remove(slug); location.href = "/"; } });
       body.appendChild(priv);
     }
   }

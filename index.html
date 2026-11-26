@@ -17,6 +17,7 @@
       <select id="map-select" title="Trocar de sala"></select>
       <div id="zone-indicator" class="pill">Área comum</div>
       <div class="spacer"></div>
+      <div id="clock" class="pill clock" title="Hora e clima no local do espaço"><span class="wx">⛅</span><span class="time">--:--</span><span class="temp"></span></div>
       <div id="latency" class="muted small"></div>
       <select id="status-select" title="Status">
         <option value="available">🟢 Disponível</option>
@@ -76,6 +77,7 @@
         <button data-tab="objects" class="active">Objetos</button><button data-tab="floor">Piso</button><button data-tab="zones">Zonas</button>
         <button data-tab="interactables">Interativos</button><button data-tab="portals">Portais</button><button data-tab="maps">Salas</button>
       </div>
+      <div class="tool-row" id="build-tools"><span class="muted small">Pincel</span><button class="sm active" data-brush="1">1</button><button class="sm" data-brush="2">2</button><button class="sm" data-brush="3">3</button><span class="spacer"></span><button class="sm" id="build-undo" title="Desfazer (Ctrl+Z)">↶ Desfazer</button></div>
       <div id="build-body" class="scroll"></div>
       <p class="muted small pad" id="build-coords"></p>
     </div>
@@ -83,6 +85,7 @@
     <canvas id="minimap" width="176" height="128" hidden></canvas>
     <div id="joystick" hidden><div class="stick"></div></div>
     <div id="toasts"></div>
+    <div id="coach" hidden><div class="coach-card"><div class="coach-text"></div><div class="row"><button class="sm" data-c="skip">Pular</button><button class="sm primary" data-c="next">Próximo</button></div></div></div>
   </div>
 
   <div id="modal" class="overlay" hidden>

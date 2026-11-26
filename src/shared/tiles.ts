@@ -40,6 +40,17 @@ export const O = {
   BENCH: 29,
   FOUNTAIN: 30,
   ARCADE: 31,
+  WINDOW: 32,
+  KITCHEN: 33,
+  FRIDGE: 34,
+  PRINTER: 35,
+  WATER_COOLER: 36,
+  RUG_ROUND: 37,
+  SIGN: 38,
+  VENDING: 39,
+  CACTUS: 40,
+  PAINTING: 41,
+  LOCKER: 42,
 } as const;
 
 export const FLOOR_NAMES: Record<number, string> = {
@@ -78,12 +89,29 @@ export const OBJECT_NAMES: Record<number, string> = {
   [O.BENCH]: "Banco",
   [O.FOUNTAIN]: "Fonte",
   [O.ARCADE]: "Arcade",
+  [O.WINDOW]: "Janela",
+  [O.KITCHEN]: "Bancada",
+  [O.FRIDGE]: "Geladeira",
+  [O.PRINTER]: "Impressora",
+  [O.WATER_COOLER]: "Bebedouro",
+  [O.RUG_ROUND]: "Tapete redondo",
+  [O.SIGN]: "Placa",
+  [O.VENDING]: "Máquina de lanches",
+  [O.CACTUS]: "Cacto",
+  [O.PAINTING]: "Quadro de parede",
+  [O.LOCKER]: "Armário",
 };
 
 const SOLID_OBJECTS = new Set<number>([
   O.WALL, O.DESK, O.PLANT, O.TABLE, O.WHITEBOARD, O.BOOKSHELF, O.COMPUTER,
   O.COFFEE, O.SOFA, O.LAMP, O.TREE, O.FENCE, O.TV, O.PIANO, O.FOUNTAIN, O.ARCADE,
+  O.WINDOW, O.KITCHEN, O.FRIDGE, O.PRINTER, O.WATER_COOLER, O.VENDING, O.CACTUS, O.PAINTING, O.LOCKER,
 ]);
+
+/** Objects that visually sit on a wall (rendered with the wall face behind them). */
+export const WALL_MOUNTED = new Set<number>([O.WINDOW, O.PAINTING, O.WHITEBOARD, O.TV, O.SIGN]);
+/** Objects that are "tall": the player standing right below is drawn behind them. */
+export const TALL_OBJECTS = new Set<number>([O.WALL, O.WINDOW, O.TREE, O.BOOKSHELF, O.LOCKER, O.FRIDGE, O.VENDING, O.LAMP, O.PLANT]);
 const SOLID_FLOORS = new Set<number>([F.NONE, F.WATER]);
 
 export function isSolid(floor: number, object: number): boolean {

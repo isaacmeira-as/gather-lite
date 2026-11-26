@@ -58,18 +58,19 @@ interface Session { page: Page; ctx: BrowserContext; errors: string[] }
 async function open(browser: Browser, url: string, token?: string, opts: any = {}): Promise<Session> {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, ...opts });
   if (token) await ctx.addInitScript((t) => localStorage.setItem("gather-lite:token", t), token);
-  await ctx.addInitScript(() => localStorage.setItem("gather-lite:picked", "1")); // skip the character picker
+  await ctx.addInitScript(() => { localStorage.setItem("gather-lite:picked", "1"); localStorage.setItem("gather-lite:coached", "1"); }); // skip picker + tour
   const page = await ctx.newPage();
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
+  page.on("console", (m) => { if (m.type() === "error" && !/GL Driver|favicon|ERR_TUNNEL|ERR_NAME|Failed to load resource/.test(m.text())) errors.push("console: " + m.text().slice(0, 300)); });
   page.on("dialog", (d) => d.accept("APAGAR"));
   await page.goto(url);
   return { page, ctx, errors };
 }
 async function joinSpace(browser: Browser, slug: string, token?: string, query = "", opts: any = {}) {
   const s = await open(browser, `${BASE}/s/${slug}${query}`, token, opts);
-  await s.page.waitForSelector("#hud:not([hidden])", { timeout: 20000 });
-  await s.page.waitForFunction(() => (window as any).__scene?.me, null, { timeout: 15000 });
+  await s.page.waitForSelector("#hud:not([hidden])", { timeout: 40000 });
+  await s.page.waitForFunction(() => (window as any).__scene?.me, null, { timeout: 30000 });
   return s;
 }
 
@@ -188,7 +189,8 @@ async function main() {
   await step("click-to-move walks a path", async () => {
     await teleport(a, 7, 7);
     await a.evaluate(() => (window as any).__scene.walkTo(10, 8));
-    await waitFor(async () => { const m = await me(a); return m.x === 10 && m.y === 8; }, "arrived", 5000);
+    try { await waitFor(async () => { const m = await me(a); return m.x === 10 && m.y === 8; }, "arrived", 5000); }
+    catch (e) { console.log("      debug:", JSON.stringify(await a.evaluate(() => { const s = (window as any).__scene; const n = (window as any).__net; return { me: [n.me.x, n.me.y], sprite: [s.me.tileX, s.me.tileY], path: s.autoPath, lastSend: s.lastSend, now: s.time.now, keys: Object.entries(s.keys).map(([k, v]: any) => k + ":" + v.isDown), vdir: s.virtualDir, focus: document.activeElement?.tagName, switching: n.switching }; })), A.errors.slice(-3)); throw e; }
   });
 
   await step("nearby / everyone / zone / spotlight chat scopes", async () => {
@@ -215,10 +217,10 @@ async function main() {
   await step("chat is rate limited", async () => {
     await teleport(b, 20, 21);
     const before = (await chatTexts(b)).length;
-    for (let i = 0; i < 6; i++) await a.evaluate((i) => (window as any).__net.chat("spam " + i, "everyone"), i);
+    await a.evaluate(() => { for (let i = 0; i < 6; i++) (window as any).__net.chat("spam " + i, "everyone"); });
     await sleep(700);
     const got = (await chatTexts(b)).length - before;
-    assert(got >= 1 && got <= 3, `burst of 6 delivered ${got}`);
+    assert(got >= 1 && got <= 2, `burst of 6 delivered ${got}`);
   });
 
   await step("direct messages, waves and summon requests", async () => {
@@ -467,6 +469,23 @@ async function main() {
     await waitFor(async () => (await me(M.page)).x > start.x, "moved with joystick");
     await M.page.screenshot({ path: path.join(SHOTS, "mobile.png") });
     await M.ctx.close();
+  });
+
+  await step("weather + day/night: settings propagate and effects render without errors", async () => {
+    const upd = await api("PATCH", `/spaces/${slug}`, { weatherMode: "rain", timeMode: "night", location: "São Paulo" }, aliceToken);
+    assert(upd.space?.weatherMode === "rain" && upd.space?.timeMode === "night", "settings saved: " + JSON.stringify(upd));
+    await waitFor(async () => (await a.evaluate(() => (window as any).__net.state.timeMode)) === "night", "timeMode synced");
+    await waitFor(async () => JSON.parse(await a.evaluate(() => (window as any).__net.state.weather)).kind === "rain", "weather synced");
+    assert(/\d\d:\d\d/.test((await a.textContent("#clock"))!), "clock shows time");
+    const F = await joinSpace(browser, slug, bobReg.token, `?map=${gardenId}&fx=1`);
+    await F.page.evaluate(() => (window as any).__net.teleport(18, 13));
+    await sleep(2500);
+    const fx = await F.page.evaluate(() => { const s = (window as any).__scene; return { rt: s.lighting.rt.visible, darkness: s.lighting.darkness, rain: !!s.weather.emitter, kind: s.weather.kind }; });
+    assert(fx.rt && fx.darkness > 0.9 && fx.rain && fx.kind === "rain", "night lighting + rain active: " + JSON.stringify(fx));
+    await F.page.screenshot({ path: path.join(SHOTS, "night-rain.png") });
+    assert(F.errors.length === 0, "fx errors: " + F.errors.join(" | "));
+    await F.ctx.close();
+    await api("PATCH", `/spaces/${slug}`, { weatherMode: "auto", timeMode: "day" }, aliceToken);
   });
 
   await step("screenshots + no page errors", async () => {

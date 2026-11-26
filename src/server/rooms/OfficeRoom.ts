@@ -6,6 +6,7 @@ import { ChatIn, ChatOut, BuildIn, STATUSES, EMOTES } from "../../shared/message
 import { normalizeAvatar } from "../../shared/avatar";
 import { userFromToken, AuthUser } from "../auth";
 import * as S from "../spaces";
+import { getWeather, WeatherInfo, simulated } from "../weather";
 
 const STEP_MS = 130;
 const EMOTE_MS = 3000;
@@ -63,6 +64,9 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     }
     this.setState(state);
     this.patchRate = 50;
+    this.refreshWeather();
+    this.clock.setInterval(() => this.refreshWeather(), 5 * 60 * 1000);
+    this.presence.subscribe(`space:${space.id}`, this.onSpaceSettings);
 
     // --- movement & presence
     this.onMessage("move", (client, msg: { dir: number }) => this.handleMove(client, msg));
@@ -291,7 +295,26 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     this.removePlayer(client.sessionId);
   }
 
-  onDispose() { this.flushSave(); }
+  onDispose() { this.flushSave(); this.presence.unsubscribe(`space:${this.space.id}`, this.onSpaceSettings); }
+
+  // Arrow function so the same reference can be unsubscribed without dropping other rooms' listeners.
+  private onSpaceSettings = () => {
+    this.space = S.getSpace(this.space.id) ?? this.space;
+    this.state.spaceName = this.space.name;
+    this.refreshWeather();
+  };
+
+  private async refreshWeather() {
+    try {
+      const info: WeatherInfo = await getWeather(this.space.id, this.space.location || "São Paulo");
+      const out = { ...info };
+      if (this.space.weather_mode && this.space.weather_mode !== "auto") { out.kind = this.space.weather_mode as any; out.source = "manual"; }
+      this.state.weather = JSON.stringify(out);
+      this.state.timeMode = this.space.time_mode || "auto";
+    } catch {
+      this.state.weather = JSON.stringify(simulated(this.space.location || "São Paulo"));
+    }
+  }
 
   // ------------------------------------------------------------- helpers
   private auth(client: Client) { return client.auth as ClientAuth; }

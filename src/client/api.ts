@@ -1,5 +1,5 @@
 export interface User { id: string; name: string; email: string | null; isGuest: boolean; avatar: any }
-export interface SpaceInfo { id: string; slug: string; name: string; isPrivate: boolean; ownerId: string; role: string | null; maps: { id: string; name: string; is_default: number }[] }
+export interface SpaceInfo { id: string; slug: string; name: string; isPrivate: boolean; ownerId: string; role: string | null; maps: { id: string; name: string; is_default: number }[]; location?: string; weatherMode?: string; timeMode?: string }
 
 const TOKEN_KEY = "gather-lite:token";
 export const getToken = () => { try { return localStorage.getItem(TOKEN_KEY); } catch { return null; } };
@@ -28,7 +28,7 @@ export const spaces = {
   list: () => api<{ spaces: any[] }>("GET", "/spaces"),
   create: (name: string, template: string, isPrivate: boolean) => api<{ space: SpaceInfo }>("POST", "/spaces", { name, template, isPrivate }),
   get: (slug: string) => api<{ space: SpaceInfo }>("GET", `/spaces/${slug}`),
-  update: (slug: string, patch: { name?: string; isPrivate?: boolean }) => api<{ space: SpaceInfo }>("PATCH", `/spaces/${slug}`, patch),
+  update: (slug: string, patch: { name?: string; isPrivate?: boolean; location?: string; weatherMode?: string; timeMode?: string }) => api<{ space: SpaceInfo }>("PATCH", `/spaces/${slug}`, patch),
   remove: (slug: string) => api("DELETE", `/spaces/${slug}`),
   members: (slug: string) => api<{ members: any[]; bans: any[] }>("GET", `/spaces/${slug}/members`),
   setRole: (slug: string, userId: string, role: string) => api("PATCH", `/spaces/${slug}/members/${userId}`, { role }),
