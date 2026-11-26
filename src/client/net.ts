@@ -1,25 +1,29 @@
 import { Client, Room, getStateCallbacks } from "@colyseus/sdk";
 import { bus } from "./bus";
-import type { Zone, Interactable } from "../shared/map";
+import { getToken } from "./api";
 
 export interface PlayerView {
-  id: string; name: string; color: string; skin: number; x: number; y: number; dir: number;
-  status: string; emote: string; zone: string; sitting: boolean; connected: boolean; joinedAt: number;
+  id: string; userId: string; name: string; color: string; avatar: string; role: string; x: number; y: number; dir: number;
+  status: string; emote: string; zone: string; sitting: boolean; ghost: boolean; connected: boolean; joinedAt: number;
 }
+export interface ZoneView { id: string; name: string; x: number; y: number; w: number; h: number; color: string }
+export interface InteractableView { id: string; x: number; y: number; kind: string; title: string; url: string; text: string; emote: string; options: string }
+export interface PortalView { id: string; x: number; y: number; targetMapId: string; targetX: number; targetY: number; label: string }
 export interface OfficeStateView {
-  width: number; height: number;
+  spaceId: string; spaceName: string; mapId: string; mapName: string;
+  width: number; height: number; spawnX: number; spawnY: number;
   floor: number[]; objects: number[];
+  zones: Map<string, ZoneView>; interactables: Map<string, InteractableView>; portals: Map<string, PortalView>;
   players: Map<string, PlayerView>;
   notes: Map<string, string>;
+  objectState: Map<string, string>;
 }
-
-export interface WelcomeInfo { id: string; map: { zones: Zone[]; interactables: Interactable[]; spawn: { x: number; y: number } } }
+export interface WelcomeInfo { id: string; userId: string; role: string; spaceId: string; mapId: string; maps: { id: string; name: string; is_default: number }[] }
 
 function endpoint() {
   const fromEnv = (import.meta as any).env?.VITE_SERVER as string | undefined;
   if (fromEnv) return fromEnv;
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  // In dev (vite on 5173) the server runs on 2567; in prod both share the origin.
   const port = location.port === "5173" ? "2567" : location.port;
   return `${proto}://${location.hostname}${port ? ":" + port : ""}`;
 }
@@ -31,37 +35,59 @@ export class Net {
   sessionId = "";
   welcome!: WelcomeInfo;
   latency = 0;
+  switching = false;
+  spaceInfo: any = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private unloadHandler = () => { try { this.room?.leave(true); } catch {} };
 
-  async join(options: { name: string; color: string; skin: number }) {
-    const welcome = new Promise<WelcomeInfo>((resolve) => {
-      const once = (w: WelcomeInfo) => { resolve(w); };
-      this._welcomeResolver = once;
-    });
-    this.room = await this.client.joinOrCreate<OfficeStateView>("office", options);
-    this.sessionId = this.room.sessionId;
-    this.$ = getStateCallbacks(this.room);
+  async join(opts: { spaceId: string; mapId: string; spawnX?: number; spawnY?: number }) {
+    const token = getToken() ?? "";
+    this.client.auth.token = token;
+    let resolveWelcome!: (w: WelcomeInfo) => void;
+    const welcome = new Promise<WelcomeInfo>((r) => (resolveWelcome = r));
+    const room = await this.client.joinOrCreate<OfficeStateView>("office", { ...opts, token });
+    this.room = room;
+    this.sessionId = room.sessionId;
+    this.$ = getStateCallbacks(room);
 
-    this.room.onMessage("welcome", (w: WelcomeInfo) => { this.welcome = w; this._welcomeResolver?.(w); bus.emit("welcome", w); });
-    this.room.onMessage("chat", (m) => bus.emit("chat", m));
-    this.room.onMessage("system", (m) => bus.emit("system", m));
-    this.room.onMessage("zone", (m) => bus.emit("zone", m));
-    this.room.onMessage("pong", (t: number) => { this.latency = Date.now() - t; bus.emit("latency", this.latency); });
-    this.room.onLeave((code) => { bus.emit("disconnected", code); if (this.pingTimer) clearInterval(this.pingTimer); });
-    this.room.onDrop(() => bus.emit("toast", "Conexão caiu, tentando reconectar…"));
-    this.room.onReconnect(() => bus.emit("toast", "Reconectado!"));
-    window.addEventListener("beforeunload", () => { try { this.room.leave(true); } catch {} });
-    this.room.onError((code, msg) => bus.emit("error", { code, msg }));
-
+    room.onMessage("welcome", (w: WelcomeInfo) => { this.welcome = w; resolveWelcome(w); bus.emit("welcome", w); });
+    room.onMessage("chat", (m) => bus.emit("chat", m));
+    room.onMessage("system", (m) => bus.emit("system", m));
+    room.onMessage("zone", (m) => bus.emit("zone", m));
+    room.onMessage("portal", (m) => bus.emit("portal", m));
+    room.onMessage("summon", (m) => bus.emit("summon", m));
+    room.onMessage("wave", (m) => bus.emit("wave", m));
+    room.onMessage("kicked", (m) => bus.emit("kicked", m));
+    room.onMessage("pong", (t: number) => { this.latency = Date.now() - t; bus.emit("latency", this.latency); });
+    room.onLeave((code) => { if (this.pingTimer) clearInterval(this.pingTimer); if (!this.switching) bus.emit("disconnected", code); });
+    room.onDrop(() => bus.emit("toast", "Conexão caiu, tentando reconectar…"));
+    room.onReconnect(() => bus.emit("toast", "Reconectado!"));
+    window.removeEventListener("beforeunload", this.unloadHandler);
+    window.addEventListener("beforeunload", this.unloadHandler);
+    if (this.pingTimer) clearInterval(this.pingTimer);
     this.pingTimer = setInterval(() => this.room.send("ping", Date.now()), 5000);
     await welcome;
-    try { localStorage.setItem("gather-lite:reconnect", this.room.reconnectionToken); } catch {}
-    return this.room;
+    return room;
   }
-  private _welcomeResolver: ((w: WelcomeInfo) => void) | null = null;
 
-  get state() { return this.room.state; }
-  get me() { return this.state.players.get(this.sessionId); }
+  /** Leave the current map and join another one (portal / map picker). */
+  async switchMap(mapId: string, x?: number, y?: number) {
+    if (this.switching) return;
+    this.switching = true;
+    const spaceId = this.state.spaceId;
+    try {
+      try { await this.room.leave(true); } catch {}
+      await this.join({ spaceId, mapId, spawnX: x, spawnY: y });
+      bus.emit("map:switched");
+    } finally {
+      this.switching = false;
+    }
+  }
+
+  get state() { return this.room?.state as OfficeStateView; }
+  get me() { return this.state?.players?.get(this.sessionId); }
+  get role() { return this.welcome?.role ?? "guest"; }
+  get canBuild() { return this.role === "owner" || this.role === "moderator"; }
   send(type: string, data?: any) { this.room.send(type, data); }
 
   move(dir: number) { this.send("move", { dir }); }
@@ -73,6 +99,7 @@ export class Net {
   note(id: string, text: string) { this.send("note", { id, text }); }
   build(layer: "floor" | "objects", x: number, y: number, tile: number) { this.send("build", { layer, x, y, tile }); }
   teleport(x: number, y: number) { this.send("teleport", { x, y }); }
+  ghost(on: boolean) { this.send("ghost", { ghost: on }); }
 }
 
 export const net = new Net();

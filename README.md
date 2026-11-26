@@ -1,82 +1,106 @@
 # Gather Lite
 
-Clone do [Gather](https://gather.town) sem a parte de vídeo/áudio: um escritório
-virtual 2D multiplayer com chat por proximidade, zonas privadas, objetos
-interativos, emotes, status, minimapa e modo construção. Tudo roda local com
-um único comando e não depende de nenhum asset binário (tiles e avatares são
-desenhados em canvas em tempo de execução).
+Clone do [Gather](https://gather.town) sem a parte de vídeo/áudio: espaços
+virtuais 2D multiplayer com contas, convites, papéis, várias salas ligadas por
+portais, chat por proximidade com histórico, objetos interativos (quadro,
+enquete, timer, iframe…), mapmaker completo, avatares customizáveis, minimapa,
+mobile e moderação. Tudo roda local com um comando; o banco é SQLite (módulo
+nativo do Node, sem dependências nativas) e não há nenhum asset binário.
 
 ## Rodando
 
 ```bash
 npm install
 npm run build     # compila o cliente para dist/
-npm start         # sobe servidor + cliente em http://localhost:2567
+npm start         # servidor + cliente em http://localhost:2567
 ```
 
-Abra http://localhost:2567 em duas abas (ou dois navegadores) e entre com nomes
-diferentes.
+Crie uma conta, crie um espaço e compartilhe o link `/s/<slug>`. Espaços
+públicos aceitam visitantes sem cadastro; privados exigem link de convite.
 
-Para desenvolver com hot reload:
+Desenvolvimento com hot reload:
 
 ```bash
 npm run dev       # servidor em :2567 (tsx watch) + Vite em :5173
 ```
 
-Atalhos úteis para testes: `http://localhost:2567/?name=Alice&color=ef4444&skin=2&autojoin=1`.
+Variáveis de ambiente: veja `.env.example`. Em produção `JWT_SECRET` é obrigatório.
 
 ## Testes
 
 ```bash
 npm test                # unitários + end-to-end
-npm run test:unit       # lógica do mapa (colisão, zonas, audição, pathfinding)
-npm run test:e2e        # sobe o servidor e abre 2–3 navegadores headless (Playwright)
+npm run test:unit       # mapa, auth, espaços/convites/histórico (SQLite em memória)
+npm run test:e2e        # sobe o servidor com DB temporário e abre vários navegadores headless
 ```
 
-O e2e cobre: dois jogadores se vendo, movimento validado pelo servidor, click-to-move,
-chat por proximidade / zona / todos / spotlight / DM, emotes, status, sentar em cadeiras,
-objetos interativos, quadro compartilhado, modo construção sincronizado e persistido,
-localizar jogador, foco do chat não mover o avatar, e reconexão após queda do socket.
+O e2e cobre: cadastro e login pela tela inicial, criação de espaço, visitante em
+espaço público, movimento validado e previsto no cliente, colisão entre avatares
+e modo fantasma, click-to-move, chat perto/todos/zona/spotlight, rate limit,
+mensagem direta, acenar, "chamar aqui", seguir, emotes, status, sentar, edição de
+perfil/avatar, nota, quadro compartilhado, enquete, timer, imagem, histórico
+após reload, permissões de visitante, promoção a moderador, mapmaker (zonas,
+objetos, spawn, formulário da UI) com persistência, portais e troca de sala pelo
+seletor, criar/renomear/importar/apagar salas, kick e ban, espaço privado com
+convite (conta e visitante), painel de membros/convites, localizar, reconexão e
+joystick mobile.
 
 ## Funcionalidades
 
 | Gather | Aqui |
 |---|---|
-| Mapa 2D em tiles, avatar anda em grade | ✅ setas / WASD, 1 tile por 130 ms, validado no servidor |
-| Clique para andar | ✅ BFS pelo mapa, desvia de móveis, para ao lado do alvo |
-| Ver outras pessoas em tempo real | ✅ Colyseus, estado delta a 20 Hz, interpolação no cliente |
-| Chat por proximidade | ✅ raio de 4 tiles; quem está longe fica esmaecido |
-| Zonas privadas | ✅ retângulos coloridos; só quem está dentro ouve, toast ao entrar/sair |
-| Spotlight | ✅ tile do palco: a fala vai para todo mundo |
-| Mensagem direta | ✅ pelo card do participante |
-| Objetos interativos (X) | ✅ nota, iframe (TV, arcade), quadro compartilhado, emote (café, piano, fonte) |
-| Emotes | ✅ teclas 1–9 ou barra de emotes, somem após 3 s |
-| Status (disponível/ocupado/não perturbe) | ✅ |
-| Sentar | ✅ cadeiras e bancos |
-| Lista de participantes + "perto de você" | ✅ |
-| Localizar pessoa | ✅ linha amarela até ela, recalculada enquanto anda |
-| Minimapa | ✅ clique nele para andar até lá |
-| Mapmaker | ✅ modo construção (B): piso e objetos, sincronizado e salvo em `data/office.json` |
-| Reconexão | ✅ 20 s para voltar sem perder o avatar |
+| Contas | ✅ e-mail + senha (scrypt), token assinado, visitante sem cadastro |
+| Espaços com URL própria | ✅ `/s/<slug>`, público ou privado, vários por conta |
+| Papéis | ✅ dono, moderador, membro, visitante; promoção pelo card ou painel |
+| Convites | ✅ links com papel, validade e limite de usos; `/invite/<token>` |
+| Moderação | ✅ remover, banir/desbanir, ao vivo e pela API |
+| Várias salas por espaço | ✅ mapas no SQLite, portais entre salas, seletor no topo |
+| Mapmaker | ✅ piso e objetos, zonas (arrastar), objetos interativos, portais, spawn, criar/renomear/apagar salas, importar/exportar JSON |
+| Objetos | ✅ nota, link, iframe, imagem, quadro compartilhado, enquete, timer compartilhado, emote |
+| Chat | ✅ proximidade (raio 4), zonas privadas, spotlight, todos, DM; histórico por usuário no banco; rate limit |
+| Social | ✅ localizar, seguir, acenar, "chamar aqui", aviso quando alguém chega perto, badge no título, sons |
+| Avatares | ✅ pele, cabelo, cor, camisa, calça, acessório; editor na home e no jogo |
+| Movimento | ✅ grade, previsão no cliente, colisão entre avatares, modo fantasma (G), sentar |
+| Mobile | ✅ joystick virtual, layout responsivo |
+| Reconexão | ✅ 20 s para voltar sem perder o avatar; segunda aba substitui a primeira |
 | Vídeo / áudio | ❌ de propósito |
 
 ## Arquitetura
 
 ```
-src/shared/     tiles.ts (ids, colisão), map.ts (mapa padrão, zonas, pathfinding, canHear), messages.ts
-src/server/     index.ts (Express + Colyseus), rooms/OfficeRoom.ts (regras), rooms/OfficeState.ts (schema)
-src/client/     main.ts (login), net.ts (SDK Colyseus), scenes/OfficeScene.ts (Phaser), ui/ (DOM), textures/ (canvas)
+src/shared/     tiles.ts, map.ts (mapa, zonas, portais, pathfinding, canHear), avatar.ts, messages.ts
+src/server/     index.ts (Express + Colyseus), db.ts (node:sqlite), auth.ts, spaces.ts (regras de negócio),
+                api.ts (REST), rooms/OfficeRoom.ts (uma sala Colyseus por mapa), rooms/OfficeState.ts
+src/client/     main.ts (rotas /, /s/:slug, /invite/:token), pages/home.ts, net.ts, api.ts,
+                scenes/OfficeScene.ts (Phaser), ui/* (DOM), textures/* (tileset e avatares em canvas)
 tests/          unit/ (node:test) e e2e/ (Playwright)
 ```
 
-O servidor é autoritativo: o cliente só envia intenção (`move {dir}`, `chat`,
-`build`...). Posição, colisão, zona, quem ouve quem e cooldown de passo são
-calculados em `OfficeRoom`. O mesmo módulo `shared/map.ts` roda nos dois lados,
-então o cliente consegue prever caminhos e distâncias sem divergir do servidor.
+- **Servidor autoritativo.** O cliente envia intenções; posição, colisão, zona,
+  audição, portais e permissões são decididos em `OfficeRoom`. O cliente prevê o
+  passo localmente e o servidor confirma ou corrige.
+- **Uma sala Colyseus por (espaço, mapa)**, via `filterBy`. Trocar de mapa é sair
+  de uma sala e entrar em outra com um spawn específico.
+- **Persistência:** `users`, `spaces`, `maps` (JSON do mapa), `memberships`,
+  `invites`, `bans`, `messages`, `object_state` (notas, enquetes, timers).
+- **Auth no WebSocket:** `OfficeRoom.onAuth` valida o token e resolve o papel.
+
+## Deploy (AWS)
+
+O app é um único processo Node com estado em SQLite, então o caminho mais
+simples é uma instância só (EC2, Lightsail ou ECS com um volume EFS/EBS):
+
+```bash
+docker build -t gather-lite .
+docker run -p 2567:2567 -e JWT_SECRET=... -v gather-data:/data gather-lite
+```
+
+Coloque um ALB ou Nginx com HTTPS na frente (WebSocket passa direto). Para
+mais de um processo, troque o `presence`/`driver` do Colyseus por Redis e o
+SQLite por Postgres; a camada `spaces.ts` concentra todo o SQL.
 
 ## Quando quiser o "meet"
 
-O ponto de encaixe já existe: `canHear()` define o grupo de conversa de cada
-jogador (proximidade ou zona). Basta, no servidor, derivar um id de grupo a cada
-mudança e, no cliente, entrar/sair de uma sala do LiveKit ou Daily quando esse id
-mudar. Nada do resto precisa ser alterado.
+`canHear()` define o grupo de conversa de cada jogador. Derive um id de grupo
+no servidor a cada mudança e, no cliente, entre e saia de uma sala do LiveKit
+ou Daily quando esse id mudar.

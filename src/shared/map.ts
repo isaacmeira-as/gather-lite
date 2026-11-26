@@ -10,7 +10,27 @@ export interface Zone {
   color: string;
 }
 
-export type InteractableKind = "iframe" | "note" | "board" | "emote" | "link";
+export type InteractableKind = "iframe" | "note" | "board" | "emote" | "link" | "poll" | "timer" | "image";
+export const INTERACTABLE_KINDS: { kind: InteractableKind; label: string; needs: ("url" | "text" | "emote" | "options")[] }[] = [
+  { kind: "note", label: "Nota (texto)", needs: ["text"] },
+  { kind: "board", label: "Quadro compartilhado", needs: [] },
+  { kind: "iframe", label: "Página embutida (iframe)", needs: ["url"] },
+  { kind: "link", label: "Link (nova aba)", needs: ["url"] },
+  { kind: "image", label: "Imagem", needs: ["url"] },
+  { kind: "poll", label: "Enquete", needs: ["text", "options"] },
+  { kind: "timer", label: "Timer compartilhado", needs: [] },
+  { kind: "emote", label: "Emote ao usar", needs: ["emote"] },
+];
+
+export interface Portal {
+  id: string;
+  x: number;
+  y: number;
+  targetMapId: string;
+  targetX: number;
+  targetY: number;
+  label?: string;
+}
 
 export interface Interactable {
   id: string;
@@ -21,6 +41,7 @@ export interface Interactable {
   url?: string;
   text?: string;
   emote?: string;
+  options?: string[];
 }
 
 export interface MapData {
@@ -30,6 +51,7 @@ export interface MapData {
   objects: number[];
   zones: Zone[];
   interactables: Interactable[];
+  portals: Portal[];
   spawn: { x: number; y: number };
 }
 
@@ -73,6 +95,10 @@ export function canHear(m: MapData, a: { x: number; y: number }, b: { x: number;
   const zb = zoneAt(m, b.x, b.y);
   if (za || zb) return za?.id === zb?.id;
   return distance(a.x, a.y, b.x, b.y) <= NEARBY_RADIUS;
+}
+
+export function portalAt(m: MapData, x: number, y: number): Portal | null {
+  return m.portals?.find((p) => p.x === x && p.y === y) ?? null;
 }
 
 export function isSpotlight(m: MapData, x: number, y: number) {
@@ -138,7 +164,7 @@ export function buildDefaultMap(): MapData {
   const height = 32;
   const floor = new Array(width * height).fill(F.GRASS);
   const objects = new Array(width * height).fill(O.NONE);
-  const m: MapData = { width, height, floor, objects, zones: [], interactables: [], spawn: { x: 7, y: 7 } };
+  const m: MapData = { width, height, floor, objects, zones: [], interactables: [], portals: [], spawn: { x: 7, y: 7 } };
 
   const setF = (x: number, y: number, t: number) => { if (inBounds(m, x, y)) floor[idx(m, x, y)] = t; };
   const setO = (x: number, y: number, t: number) => { if (inBounds(m, x, y)) objects[idx(m, x, y)] = t; };
@@ -252,7 +278,57 @@ export function buildDefaultMap(): MapData {
     { id: "fonte", x: 40, y: 6, kind: "emote", title: "Fonte", emote: "💧" },
     { id: "palco", x: 17, y: 19, kind: "note", title: "Spotlight", text: "Quem fica neste tile fala com TODO o escritório, independentemente de distância ou zona." },
     { id: "quadro-geral", x: 29, y: 11, kind: "board", title: "Mural de avisos" },
+    { id: "enquete", x: 24, y: 13, kind: "poll", title: "Enquete do lounge", text: "Onde vai ser o happy hour?", options: ["Bar da esquina", "Rooftop", "Online mesmo"] },
+    { id: "timer-sala-a", x: 14, y: 3, kind: "timer", title: "Timer da reunião" },
+    { id: "quadro-ipe", x: 32, y: 3, kind: "image", title: "Quadro de parede", url: "https://picsum.photos/seed/gather/800/500" },
   );
 
+  return m;
+}
+
+/** Small blank map used by the mapmaker when creating a new room. */
+export function buildBlankMap(width = 30, height = 20, floorTile: number = F.WOOD): MapData {
+  const floor = new Array(width * height).fill(floorTile);
+  const objects = new Array(width * height).fill(O.NONE);
+  const m: MapData = { width, height, floor, objects, zones: [], interactables: [], portals: [], spawn: { x: Math.floor(width / 2), y: Math.floor(height / 2) } };
+  for (let x = 0; x < width; x++) { objects[idx(m, x, 0)] = O.WALL; objects[idx(m, x, height - 1)] = O.WALL; }
+  for (let y = 0; y < height; y++) { objects[idx(m, 0, y)] = O.WALL; objects[idx(m, width - 1, y)] = O.WALL; }
+  return m;
+}
+
+/** Garden template: outdoor area with a pond, path and benches. */
+export function buildGardenMap(): MapData {
+  const m = buildBlankMap(36, 26, F.GRASS);
+  const set = (x: number, y: number, t: number) => { m.objects[idx(m, x, y)] = t; };
+  for (let x = 0; x < m.width; x++) { set(x, 0, O.FENCE); set(x, m.height - 1, O.FENCE); }
+  for (let y = 0; y < m.height; y++) { set(0, y, O.FENCE); set(m.width - 1, y, O.FENCE); }
+  for (let x = 2; x < m.width - 2; x++) m.floor[idx(m, x, 13)] = F.PATH;
+  for (let y = 2; y < m.height - 2; y++) m.floor[idx(m, 18, y)] = F.PATH;
+  for (let y = 4; y <= 7; y++) for (let x = 6; x <= 10; x++) m.floor[idx(m, x, y)] = F.WATER;
+  set(26, 6, O.FOUNTAIN);
+  for (const [x, y] of [[4, 18], [12, 20], [24, 18], [30, 21], [8, 10], [28, 3], [14, 3]]) set(x, y, O.TREE);
+  for (const [x, y] of [[20, 10], [22, 16], [10, 16], [30, 10]]) set(x, y, O.BENCH);
+  for (const [x, y] of [[5, 15], [16, 8], [24, 22], [32, 15]]) set(x, y, O.FLOWERS);
+  m.zones.push({ id: "gazebo", name: "Gazebo", x: 20, y: 15, w: 4, h: 3, color: "#84cc16" });
+  m.spawn = { x: 18, y: 13 };
+  return m;
+}
+
+/** Validates/normalises an imported map object. Returns null when unusable. */
+export function normalizeMap(input: any): MapData | null {
+  if (!input || typeof input !== "object") return null;
+  const width = Number(input.width), height = Number(input.height);
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 4 || height < 4 || width > 200 || height > 200) return null;
+  const n = width * height;
+  const floor = Array.isArray(input.floor) && input.floor.length === n ? input.floor.map((v: any) => Number(v) | 0) : new Array(n).fill(F.WOOD);
+  const objects = Array.isArray(input.objects) && input.objects.length === n ? input.objects.map((v: any) => Number(v) | 0) : new Array(n).fill(O.NONE);
+  const m: MapData = { width, height, floor, objects, zones: [], interactables: [], portals: [], spawn: { x: 1, y: 1 } };
+  for (const z of input.zones ?? []) if (z && typeof z.name === "string") m.zones.push({ id: String(z.id ?? `z${m.zones.length}`), name: z.name.slice(0, 40), x: z.x | 0, y: z.y | 0, w: Math.max(1, z.w | 0), h: Math.max(1, z.h | 0), color: /^#[0-9a-fA-F]{6}$/.test(z.color) ? z.color : "#3b82f6" });
+  for (const it of input.interactables ?? []) if (it && typeof it.title === "string" && INTERACTABLE_KINDS.some((k) => k.kind === it.kind)) m.interactables.push({ id: String(it.id ?? `i${m.interactables.length}`), x: it.x | 0, y: it.y | 0, kind: it.kind, title: it.title.slice(0, 60), url: typeof it.url === "string" ? it.url.slice(0, 500) : undefined, text: typeof it.text === "string" ? it.text.slice(0, 5000) : undefined, emote: typeof it.emote === "string" ? it.emote.slice(0, 4) : undefined, options: Array.isArray(it.options) ? it.options.slice(0, 10).map((o: any) => String(o).slice(0, 60)) : undefined });
+  for (const p of input.portals ?? []) if (p && typeof p.targetMapId === "string") m.portals.push({ id: String(p.id ?? `p${m.portals.length}`), x: p.x | 0, y: p.y | 0, targetMapId: p.targetMapId, targetX: p.targetX | 0, targetY: p.targetY | 0, label: typeof p.label === "string" ? p.label.slice(0, 40) : undefined });
+  if (input.spawn && inBounds(m, input.spawn.x | 0, input.spawn.y | 0)) m.spawn = { x: input.spawn.x | 0, y: input.spawn.y | 0 };
+  if (!isWalkable(m, m.spawn.x, m.spawn.y)) {
+    outer: for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if (isWalkable(m, x, y)) { m.spawn = { x, y }; break outer; }
+  }
   return m;
 }

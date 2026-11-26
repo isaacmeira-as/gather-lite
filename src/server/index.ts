@@ -7,24 +7,28 @@ import { Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { monitor } from "@colyseus/monitor";
 import { OfficeRoom } from "./rooms/OfficeRoom";
+import { api } from "./api";
+import { getDb } from "./db";
 
 const PORT = Number(process.env.PORT ?? 2567);
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.get("/healthz", (_req, res) => res.json({ ok: true }));
+app.use("/api", api);
+getDb();
 app.use("/colyseus", monitor());
 
 // Serve the built client when it exists (npm run build).
 const dist = path.join(process.cwd(), "dist");
 if (fs.existsSync(dist)) {
   app.use(express.static(dist));
-  app.get(/^(?!\/colyseus|\/matchmake).*/, (_req, res) => res.sendFile(path.join(dist, "index.html")));
+  app.get(/^(?!\/colyseus|\/matchmake|\/api).*/, (_req, res) => res.sendFile(path.join(dist, "index.html")));
 }
 
 const httpServer = http.createServer(app);
 const gameServer = new Server({ transport: new WebSocketTransport({ server: httpServer }) });
-gameServer.define("office", OfficeRoom);
+gameServer.define("office", OfficeRoom).filterBy(["spaceId", "mapId"]);
 
 gameServer.listen(PORT).then(() => {
   console.log(`gather-lite server listening on http://localhost:${PORT}`);

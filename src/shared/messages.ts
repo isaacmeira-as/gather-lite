@@ -9,11 +9,14 @@ export interface ChatIn {
 export interface ChatOut {
   id: number;
   from: string;
+  fromUserId?: string;
   fromName: string;
   fromColor: string;
   text: string;
   scope: ChatScope;
   to?: string;
+  toUserId?: string;
+  toName?: string;
   ts: number;
 }
 

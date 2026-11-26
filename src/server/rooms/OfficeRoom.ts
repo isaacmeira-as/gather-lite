@@ -1,134 +1,348 @@
-import { Room, Client } from "@colyseus/core";
-import fs from "node:fs";
-import path from "node:path";
-import { OfficeState, Player } from "./OfficeState";
-import { buildDefaultMap, MapData, stepTarget, zoneAt, canHear, isSpotlight, idx, inBounds, interactableNear } from "../../shared/map";
-import { F, O, SITTABLE, DIR_DELTA, isSolid } from "../../shared/tiles";
+import { Room, Client, ServerError } from "@colyseus/core";
+import { OfficeState, Player, ZoneS, InteractableS, PortalS } from "./OfficeState";
+import { MapData, stepTarget, zoneAt, canHear, isSpotlight, idx, inBounds, interactableNear, portalAt, normalizeMap, Zone, Interactable, Portal, INTERACTABLE_KINDS, isWalkable } from "../../shared/map";
+import { F, O, SITTABLE, DIR_DELTA } from "../../shared/tiles";
 import { ChatIn, ChatOut, BuildIn, STATUSES, EMOTES } from "../../shared/messages";
+import { normalizeAvatar } from "../../shared/avatar";
+import { userFromToken, AuthUser } from "../auth";
+import * as S from "../spaces";
 
-const STEP_MS = 130;           // one tile per 130ms (~7.7 tiles/s)
+const STEP_MS = 130;
 const EMOTE_MS = 3000;
 const MAX_CHAT = 500;
-const DATA_FILE = process.env.OFFICE_DATA ?? path.join(process.cwd(), "data", "office.json");
+const CHAT_MIN_INTERVAL = 250;
 
-interface JoinOptions { name?: string; color?: string; skin?: number }
+interface JoinOptions { token?: string; spaceId: string; mapId?: string; spawnX?: number; spawnY?: number }
+interface ClientAuth { user: AuthUser; role: S.Role }
 
 export class OfficeRoom extends Room<{ state: OfficeState }> {
   maxClients = 200;
-  autoDispose = false;
+  autoDispose = true;
+  maxMessagesPerSecond = 60;
 
   private map!: MapData;
+  private space!: S.SpaceRow;
+  private mapRow!: S.MapRow;
   private lastStep = new Map<string, number>();
+  private lastChat = new Map<string, number>();
   private emoteTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private chatSeq = 0;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
 
-  onCreate() {
-    this.map = buildDefaultMap();
+  static async onAuth(token: string, options: JoinOptions): Promise<ClientAuth> {
+    const user = userFromToken(token || options?.token);
+    if (!user) throw new ServerError(401, "faça login para entrar");
+    const space = S.getSpace(options.spaceId);
+    if (!space) throw new ServerError(404, "espaço não encontrado");
+    const role = S.effectiveRole(space, user.id);
+    if (!role) throw new ServerError(403, S.isBanned(space.id, user.id) ? "você foi banido deste espaço" : "espaço privado: peça um convite");
+    return { user, role };
+  }
+
+  onCreate(options: JoinOptions) {
+    const space = S.getSpace(options.spaceId);
+    if (!space) throw new ServerError(404, "espaço não encontrado");
+    const mapRow = options.mapId ? S.getMap(options.mapId) : S.defaultMap(space.id);
+    if (!mapRow || mapRow.space_id !== space.id) throw new ServerError(404, "mapa não encontrado");
+    this.space = space;
+    this.mapRow = mapRow;
+    const map = S.loadMapData(mapRow.id);
+    if (!map) throw new ServerError(500, "mapa corrompido");
+    this.map = map;
+
     const state = new OfficeState();
-    state.width = this.map.width;
-    state.height = this.map.height;
-
-    // Restore persisted edits (build mode, notes) when available.
-    const saved = this.loadData();
-    if (saved?.floor?.length === this.map.floor.length) this.map.floor = saved.floor;
-    if (saved?.objects?.length === this.map.objects.length) this.map.objects = saved.objects;
-    state.floor.push(...this.map.floor);
-    state.objects.push(...this.map.objects);
-    for (const [k, v] of Object.entries(saved?.notes ?? {})) state.notes.set(k, String(v));
-
+    state.spaceId = space.id;
+    state.spaceName = space.name;
+    state.mapId = mapRow.id;
+    state.mapName = mapRow.name;
+    this.syncMapToState(state, true);
+    const objState = S.allObjectState(space.id);
+    for (const [k, v] of Object.entries(objState)) {
+      if (k.startsWith("note:")) state.notes.set(k.slice(5), String(v));
+      else state.objectState.set(k, JSON.stringify(v));
+    }
     this.setState(state);
     this.patchRate = 50;
 
+    // --- movement & presence
     this.onMessage("move", (client, msg: { dir: number }) => this.handleMove(client, msg));
-    this.onMessage("face", (client, msg: { dir: number }) => {
-      const p = this.state.players.get(client.sessionId);
-      if (p && DIR_DELTA[msg?.dir]) p.dir = msg.dir;
+    this.onMessage("face", (client, msg: { dir: number }) => { const p = this.player(client); if (p && DIR_DELTA[msg?.dir]) p.dir = msg.dir; });
+    this.onMessage("ghost", (client, msg: { ghost: boolean }) => { const p = this.player(client); if (p) p.ghost = !!msg?.ghost; });
+    this.onMessage("status", (client, msg: { status: string }) => { const p = this.player(client); if (p && (STATUSES as readonly string[]).includes(msg?.status)) p.status = msg.status; });
+    this.onMessage("emote", (client, msg: { emote: string }) => { const p = this.player(client); if (p && EMOTES.includes(msg?.emote)) this.setEmote(p, msg.emote); });
+    this.onMessage("teleport", (client, msg: { x: number; y: number }) => {
+      const p = this.player(client);
+      if (!p || !Number.isInteger(msg?.x) || !Number.isInteger(msg?.y) || !isWalkable(this.map, msg.x, msg.y)) return;
+      p.x = msg.x; p.y = msg.y;
+      this.afterMove(client, p);
     });
+    this.onMessage("ping", (client, t: number) => client.send("pong", t));
+    this.onMessage("profile", (client, msg: { name?: string; avatar?: any }) => {
+      const p = this.player(client);
+      const { user } = this.auth(client);
+      if (!p) return;
+      if (typeof msg?.name === "string") { const nm = msg.name.replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 24); if (nm) { p.name = nm; user.name = nm; } }
+      if (msg?.avatar) { const av = normalizeAvatar(msg.avatar); p.avatar = JSON.stringify(av); p.color = av.shirt; user.avatar = av; }
+      S.updateUserProfile(user.id, user.name, user.avatar);
+    });
+
+    // --- chat & social
     this.onMessage("chat", (client, msg: ChatIn) => this.handleChat(client, msg));
-    this.onMessage("status", (client, msg: { status: string }) => {
-      const p = this.state.players.get(client.sessionId);
-      if (p && (STATUSES as readonly string[]).includes(msg?.status)) p.status = msg.status;
+    this.onMessage("summon", (client, msg: { to: string }) => {
+      const p = this.player(client);
+      const target = this.clients.find((c) => c.sessionId === msg?.to);
+      if (!p || !target) return;
+      target.send("summon", { from: p.id, name: p.name, x: p.x, y: p.y, mapId: this.state.mapId });
     });
-    this.onMessage("emote", (client, msg: { emote: string }) => {
-      const p = this.state.players.get(client.sessionId);
-      if (p && EMOTES.includes(msg?.emote)) this.setEmote(p, msg.emote);
+    this.onMessage("wave", (client, msg: { to: string }) => {
+      const p = this.player(client);
+      const target = this.clients.find((c) => c.sessionId === msg?.to);
+      if (!p || !target) return;
+      this.setEmote(p, "👋");
+      target.send("wave", { from: p.id, name: p.name });
     });
+
+    // --- objects
     this.onMessage("interact", (client, msg: { id: string }) => {
-      const p = this.state.players.get(client.sessionId);
+      const p = this.player(client);
       if (!p) return;
       const it = interactableNear(this.map, p.x, p.y);
       if (it && it.id === msg?.id && it.kind === "emote" && it.emote) this.setEmote(p, it.emote);
     });
     this.onMessage("note", (client, msg: { id: string; text: string }) => {
       if (!msg || typeof msg.id !== "string" || typeof msg.text !== "string") return;
-      const it = this.map.interactables.find((i) => i.id === msg.id && i.kind === "board");
-      if (!it) return;
-      this.state.notes.set(msg.id, msg.text.slice(0, 5000));
+      if (!this.state.interactables.has(msg.id)) return;
+      const text = msg.text.slice(0, 5000);
+      this.state.notes.set(msg.id, text);
+      S.setObjectState(this.space.id, `note:${msg.id}`, text);
+    });
+    this.onMessage("poll:vote", (client, msg: { id: string; option: number }) => {
+      const p = this.player(client);
+      const it = this.state.interactables.get(msg?.id);
+      if (!p || !it || it.kind !== "poll" || !Number.isInteger(msg.option)) return;
+      const options = JSON.parse(it.options || "[]") as string[];
+      if (msg.option < 0 || msg.option >= options.length) return;
+      const key = `poll:${it.id}`;
+      const cur = this.objState(key) ?? { votes: {} };
+      cur.votes[p.userId] = msg.option;
+      this.setObjState(key, cur);
+    });
+    this.onMessage("poll:reset", (client, msg: { id: string }) => {
+      if (!S.can.moderate(this.auth(client).role)) return;
+      const it = this.state.interactables.get(msg?.id);
+      if (it?.kind === "poll") this.setObjState(`poll:${it.id}`, { votes: {} });
+    });
+    this.onMessage("timer", (client, msg: { id: string; action: "start" | "stop" | "reset"; seconds?: number }) => {
+      const it = this.state.interactables.get(msg?.id);
+      if (!it || it.kind !== "timer") return;
+      const key = `timer:${it.id}`;
+      const cur = this.objState(key) ?? { running: false, endsAt: 0, remaining: 25 * 60 };
+      if (msg.action === "start") {
+        const secs = Number.isFinite(msg.seconds) ? Math.max(5, Math.min(24 * 3600, msg.seconds!)) : cur.remaining;
+        this.setObjState(key, { running: true, endsAt: Date.now() + secs * 1000, remaining: secs });
+      } else if (msg.action === "stop" && cur.running) {
+        this.setObjState(key, { running: false, endsAt: 0, remaining: Math.max(0, Math.round((cur.endsAt - Date.now()) / 1000)) });
+      } else if (msg.action === "reset") {
+        this.setObjState(key, { running: false, endsAt: 0, remaining: Number.isFinite(msg.seconds) ? Math.max(5, msg.seconds!) : 25 * 60 });
+      }
+    });
+
+    // --- mapmaker (moderator+)
+    this.onMessage("build", (client, msg: BuildIn) => { if (this.canBuild(client)) this.handleBuild(msg); });
+    this.onMessage("zone:set", (client, z: Zone) => {
+      if (!this.canBuild(client) || !z || typeof z.name !== "string") return;
+      const id = typeof z.id === "string" && z.id ? z.id.slice(0, 40) : `z_${Date.now().toString(36)}`;
+      const zone: Zone = { id, name: z.name.slice(0, 40) || "Zona", x: z.x | 0, y: z.y | 0, w: Math.max(1, z.w | 0), h: Math.max(1, z.h | 0), color: /^#[0-9a-fA-F]{6}$/.test(z.color) ? z.color : "#3b82f6" };
+      if (!inBounds(this.map, zone.x, zone.y)) return;
+      this.map.zones = this.map.zones.filter((o) => o.id !== id).concat(zone);
+      this.syncMapToState(this.state);
+      this.refreshZones();
       this.scheduleSave();
     });
-    this.onMessage("build", (client, msg: BuildIn) => this.handleBuild(client, msg));
-    this.onMessage("teleport", (client, msg: { x: number; y: number }) => {
-      // Used by "locate -> go" and by tests; still validated against the map.
-      const p = this.state.players.get(client.sessionId);
-      if (!p || !Number.isInteger(msg?.x) || !Number.isInteger(msg?.y)) return;
-      if (!inBounds(this.map, msg.x, msg.y)) return;
-      const i = idx(this.map, msg.x, msg.y);
-      if (isSolid(this.map.floor[i], this.map.objects[i])) return;
-      p.x = msg.x; p.y = msg.y;
-      this.afterMove(client, p);
+    this.onMessage("zone:remove", (client, msg: { id: string }) => {
+      if (!this.canBuild(client)) return;
+      this.map.zones = this.map.zones.filter((o) => o.id !== msg?.id);
+      this.syncMapToState(this.state);
+      this.refreshZones();
+      this.scheduleSave();
     });
-    this.onMessage("ping", (client, t: number) => client.send("pong", t));
+    this.onMessage("interactable:set", (client, it: Interactable) => {
+      if (!this.canBuild(client) || !it || !INTERACTABLE_KINDS.some((k) => k.kind === it.kind)) return;
+      if (!inBounds(this.map, it.x | 0, it.y | 0)) return;
+      const id = typeof it.id === "string" && it.id ? it.id.slice(0, 40) : `i_${Date.now().toString(36)}`;
+      const clean: Interactable = { id, x: it.x | 0, y: it.y | 0, kind: it.kind, title: String(it.title ?? "").slice(0, 60) || "Objeto", url: typeof it.url === "string" ? it.url.slice(0, 500) : undefined, text: typeof it.text === "string" ? it.text.slice(0, 5000) : undefined, emote: typeof it.emote === "string" ? it.emote.slice(0, 4) : undefined, options: Array.isArray(it.options) ? it.options.slice(0, 10).map((o) => String(o).slice(0, 60)).filter(Boolean) : undefined };
+      this.map.interactables = this.map.interactables.filter((o) => o.id !== id && !(o.x === clean.x && o.y === clean.y)).concat(clean);
+      this.syncMapToState(this.state);
+      this.scheduleSave();
+    });
+    this.onMessage("interactable:remove", (client, msg: { id: string }) => {
+      if (!this.canBuild(client)) return;
+      this.map.interactables = this.map.interactables.filter((o) => o.id !== msg?.id);
+      this.syncMapToState(this.state);
+      this.scheduleSave();
+    });
+    this.onMessage("portal:set", (client, p: Portal) => {
+      if (!this.canBuild(client) || !p || typeof p.targetMapId !== "string") return;
+      const target = S.getMap(p.targetMapId);
+      if (!target || target.space_id !== this.space.id || !inBounds(this.map, p.x | 0, p.y | 0)) return;
+      const id = typeof p.id === "string" && p.id ? p.id.slice(0, 40) : `p_${Date.now().toString(36)}`;
+      const clean: Portal = { id, x: p.x | 0, y: p.y | 0, targetMapId: p.targetMapId, targetX: p.targetX | 0, targetY: p.targetY | 0, label: typeof p.label === "string" ? p.label.slice(0, 40) : target.name };
+      this.map.portals = this.map.portals.filter((o) => o.id !== id && !(o.x === clean.x && o.y === clean.y)).concat(clean);
+      this.syncMapToState(this.state);
+      this.scheduleSave();
+    });
+    this.onMessage("portal:remove", (client, msg: { id: string }) => {
+      if (!this.canBuild(client)) return;
+      this.map.portals = this.map.portals.filter((o) => o.id !== msg?.id);
+      this.syncMapToState(this.state);
+      this.scheduleSave();
+    });
+    this.onMessage("spawn:set", (client, msg: { x: number; y: number }) => {
+      if (!this.canBuild(client) || !isWalkable(this.map, msg?.x | 0, msg?.y | 0)) return;
+      this.map.spawn = { x: msg.x | 0, y: msg.y | 0 };
+      this.syncMapToState(this.state);
+      this.scheduleSave();
+    });
+    this.onMessage("map:import", (client, data: any) => {
+      if (!this.canBuild(client)) return;
+      const m = normalizeMap(data);
+      if (!m) return client.send("system", { text: "Mapa inválido.", ts: Date.now() });
+      this.map = m;
+      this.syncMapToState(this.state, true);
+      this.refreshZones();
+      for (const [sid, p] of this.state.players) {
+        if (!isWalkable(this.map, p.x, p.y)) { p.x = m.spawn.x; p.y = m.spawn.y; }
+        const c = this.clients.find((c) => c.sessionId === sid); if (c) this.afterMove(c, p);
+      }
+      this.flushSave();
+      this.broadcast("system", { text: `${this.player(client)?.name} importou um novo mapa`, ts: Date.now() });
+    });
+    this.onMessage("map:rename", (client, msg: { name: string }) => {
+      if (!this.canBuild(client) || typeof msg?.name !== "string") return;
+      const name = msg.name.trim().slice(0, 40); if (!name) return;
+      S.renameMap(this.mapRow.id, name);
+      this.state.mapName = name;
+    });
+
+    // --- moderation (moderator+)
+    this.onMessage("kick", (client, msg: { to: string; ban?: boolean; reason?: string }) => {
+      const actor = this.auth(client);
+      if (!S.can.moderate(actor.role)) return;
+      const target = this.clients.find((c) => c.sessionId === msg?.to);
+      const tp = target && this.player(target);
+      if (!target || !tp) return;
+      const targetRole = this.auth(target).role;
+      if (targetRole === "owner" || (targetRole === "moderator" && actor.role !== "owner")) return;
+      if (msg.ban) S.ban(this.space.id, tp.userId, String(msg.reason ?? "").slice(0, 200));
+      target.send("kicked", { ban: !!msg.ban, reason: msg.reason ?? "" });
+      this.broadcast("system", { text: `${tp.name} foi ${msg.ban ? "banido" : "removido"} por ${actor.user.name}`, ts: Date.now() }, { except: target });
+      setTimeout(() => target.leave(4000), 150);
+    });
+    this.onMessage("role", (client, msg: { to: string; role: S.Role }) => {
+      const actor = this.auth(client);
+      if (!S.can.moderate(actor.role) || !["moderator", "member", "guest"].includes(msg?.role)) return;
+      if (msg.role === "moderator" && actor.role !== "owner") return;
+      const target = this.clients.find((c) => c.sessionId === msg.to);
+      const tp = target && this.player(target);
+      if (!target || !tp || tp.userId === this.space.owner_id) return;
+      S.setRole(this.space.id, tp.userId, msg.role);
+      (target.auth as ClientAuth).role = msg.role;
+      tp.role = msg.role;
+      target.send("system", { text: `Seu papel agora é: ${msg.role}`, ts: Date.now() });
+    });
   }
 
-  onJoin(client: Client, options: JoinOptions = {}) {
+  onJoin(client: Client, options: JoinOptions) {
+    const { user, role } = this.auth(client);
+    // One avatar per user per room: a second tab replaces the first.
+    for (const [sid, other] of this.state.players) {
+      if (other.userId === user.id && sid !== client.sessionId) {
+        const c = this.clients.find((c) => c.sessionId === sid);
+        if (c) { c.send("system", { text: "Você entrou em outra aba.", ts: Date.now() }); c.leave(4000); }
+        this.removePlayer(sid, true);
+      }
+    }
+    const avatar = normalizeAvatar(user.avatar);
     const p = new Player();
     p.id = client.sessionId;
-    p.name = sanitizeName(options.name) || `Visitante ${this.state.players.size + 1}`;
-    p.color = /^#[0-9a-fA-F]{6}$/.test(options.color ?? "") ? options.color! : randomColor();
-    p.skin = Number.isInteger(options.skin) ? Math.max(0, Math.min(5, options.skin!)) : 0;
-    const spawn = this.freeSpawn();
+    p.userId = user.id;
+    p.name = user.name;
+    p.color = avatar.shirt;
+    p.avatar = JSON.stringify(avatar);
+    p.role = role;
+    const spawn = Number.isInteger(options.spawnX) && Number.isInteger(options.spawnY) && isWalkable(this.map, options.spawnX!, options.spawnY!)
+      ? { x: options.spawnX!, y: options.spawnY! } : this.freeSpawn();
     p.x = spawn.x;
     p.y = spawn.y;
     p.joinedAt = Date.now();
     this.state.players.set(client.sessionId, p);
     this.afterMove(client, p, true);
-    this.broadcast("system", { text: `${p.name} entrou no escritório`, ts: Date.now() }, { except: client });
-    client.send("welcome", { id: client.sessionId, map: { zones: this.map.zones, interactables: this.map.interactables, spawn: this.map.spawn } });
+    this.broadcast("system", { text: `${p.name} entrou em ${this.state.mapName}`, ts: Date.now() }, { except: client });
+    client.send("welcome", { id: client.sessionId, userId: user.id, role, spaceId: this.space.id, mapId: this.mapRow.id, maps: S.listMaps(this.space.id) });
   }
 
   async onLeave(client: Client, code?: number) {
-    const p = this.state.players.get(client.sessionId);
+    const p = this.player(client);
     if (!p) return;
     p.connected = false;
-    // 4000 = consented leave (room.leave(true) on the client). Anything else is
-    // a dropped socket: keep the avatar for 20s so a refresh/network blip can resume.
     if (code !== 4000) {
-      try {
-        await this.allowReconnection(client, 20);
-        p.connected = true;
-        return;
-      } catch {
-        // timed out, fall through
-      }
+      try { await this.allowReconnection(client, 20); p.connected = true; return; } catch {}
     }
     this.removePlayer(client.sessionId);
   }
 
-  onDispose() {
-    this.flushSave();
+  onDispose() { this.flushSave(); }
+
+  // ------------------------------------------------------------- helpers
+  private auth(client: Client) { return client.auth as ClientAuth; }
+  private player(client: Client) { return this.state.players.get(client.sessionId); }
+  private canBuild(client: Client) { return S.can.build(this.auth(client)?.role); }
+  private objState(key: string) { const v = this.state.objectState.get(key); try { return v ? JSON.parse(v) : null; } catch { return null; } }
+  private setObjState(key: string, value: any) { this.state.objectState.set(key, JSON.stringify(value)); S.setObjectState(this.space.id, key, value); }
+
+  /** Copies this.map (plain data) into the schema state. */
+  private syncMapToState(state: OfficeState, layers = false) {
+    state.width = this.map.width;
+    state.height = this.map.height;
+    state.spawnX = this.map.spawn.x;
+    state.spawnY = this.map.spawn.y;
+    if (layers) {
+      if (state.floor.length === 0) { state.floor.push(...this.map.floor); state.objects.push(...this.map.objects); }
+      else {
+        // Same-size maps patch in place; a different size needs a fresh array.
+        const same = state.floor.length === this.map.floor.length;
+        if (!same) { state.floor.clear(); state.objects.clear(); state.floor.push(...this.map.floor); state.objects.push(...this.map.objects); }
+        else for (let i = 0; i < this.map.floor.length; i++) { if (state.floor[i] !== this.map.floor[i]) state.floor[i] = this.map.floor[i]; if (state.objects[i] !== this.map.objects[i]) state.objects[i] = this.map.objects[i]; }
+      }
+    }
+    const syncMap = <T extends { id: string }, U extends { id: string }>(list: T[], target: Map<string, U>, make: (t: T) => U, same: (t: T, u: U) => boolean) => {
+      const ids = new Set(list.map((i) => i.id));
+      for (const k of [...target.keys()]) if (!ids.has(k)) target.delete(k);
+      for (const item of list) { const cur = target.get(item.id); if (!cur || !same(item, cur)) target.set(item.id, make(item)); }
+    };
+    syncMap(this.map.zones, state.zones as any, (z) => Object.assign(new ZoneS(), z), (z, s) => JSON.stringify(z) === JSON.stringify(s.toJSON()));
+    syncMap(this.map.interactables, state.interactables as any, (i) => Object.assign(new InteractableS(), { id: i.id, x: i.x, y: i.y, kind: i.kind, title: i.title, url: i.url ?? "", text: i.text ?? "", emote: i.emote ?? "", options: JSON.stringify(i.options ?? []) }), (i, s) => s.x === i.x && s.y === i.y && s.kind === i.kind && s.title === i.title && s.url === (i.url ?? "") && s.text === (i.text ?? "") && s.emote === (i.emote ?? "") && s.options === JSON.stringify(i.options ?? []));
+    syncMap(this.map.portals, state.portals as any, (p) => Object.assign(new PortalS(), { ...p, label: p.label ?? "" }), (p, s) => s.x === p.x && s.y === p.y && s.targetMapId === p.targetMapId && s.targetX === p.targetX && s.targetY === p.targetY && s.label === (p.label ?? ""));
   }
 
-  // ---------------------------------------------------------------------
+  private refreshZones() {
+    for (const [sid, p] of this.state.players) { const c = this.clients.find((c) => c.sessionId === sid); if (c) this.afterMove(c, p); }
+  }
+
   private handleMove(client: Client, msg: { dir: number }) {
-    const p = this.state.players.get(client.sessionId);
+    const p = this.player(client);
     if (!p || !DIR_DELTA[msg?.dir]) return;
     p.dir = msg.dir;
     const now = Date.now();
     const last = this.lastStep.get(client.sessionId) ?? 0;
-    if (now - last < STEP_MS) return;
+    if (now - last < STEP_MS - 15) return;
     const target = stepTarget(this.map, p.x, p.y, msg.dir);
     if (!target) return;
+    if (!p.ghost) {
+      for (const other of this.state.players.values()) {
+        if (other !== p && other.connected && !other.ghost && other.x === target.x && other.y === target.y) return;
+      }
+    }
     this.lastStep.set(client.sessionId, now);
     p.x = target.x;
     p.y = target.y;
@@ -143,70 +357,69 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       if (!silent) client.send("zone", { id: zoneId, name: z?.name ?? "" });
     }
     p.sitting = SITTABLE.has(this.map.objects[idx(this.map, p.x, p.y)]);
+    const portal = portalAt(this.map, p.x, p.y);
+    if (portal && !silent) {
+      const target = S.getMap(portal.targetMapId);
+      if (target && target.space_id === this.space.id) client.send("portal", { mapId: target.id, mapName: target.name, x: portal.targetX, y: portal.targetY });
+    }
   }
 
   private handleChat(client: Client, msg: ChatIn) {
-    const p = this.state.players.get(client.sessionId);
+    const p = this.player(client);
     if (!p || typeof msg?.text !== "string") return;
+    const now = Date.now();
+    if (now - (this.lastChat.get(client.sessionId) ?? 0) < CHAT_MIN_INTERVAL) return;
+    this.lastChat.set(client.sessionId, now);
     const text = msg.text.trim().slice(0, MAX_CHAT);
     if (!text) return;
-    const base: ChatOut = {
-      id: ++this.chatSeq,
-      from: p.id,
-      fromName: p.name,
-      fromColor: p.color,
-      text,
-      scope: "nearby",
-      ts: Date.now(),
-    };
+    const base: ChatOut = { id: ++this.chatSeq, from: p.id, fromUserId: p.userId, fromName: p.name, fromColor: p.color, text, scope: "nearby", ts: now };
+    const persist = (scope: string, extra: { to?: string; recipients?: string[] } = {}) =>
+      S.saveMessage({ spaceId: this.space.id, mapId: this.state.mapId, scope, from: p.userId, fromName: p.name, fromColor: p.color, text, ts: now, ...extra });
 
     if (msg.scope === "dm" && msg.to) {
       const target = this.clients.find((c) => c.sessionId === msg.to);
-      if (!target) return client.send("system", { text: "Essa pessoa não está mais aqui.", ts: Date.now() });
-      const out = { ...base, scope: "dm" as const, to: msg.to };
+      const tp = target && this.player(target);
+      if (!target || !tp) return client.send("system", { text: "Essa pessoa não está mais aqui.", ts: now });
+      const out = { ...base, scope: "dm" as const, to: msg.to, toUserId: tp.userId, toName: tp.name };
       target.send("chat", out);
       client.send("chat", out);
+      persist("dm", { to: tp.userId });
       return;
     }
-
     if (msg.scope === "everyone") {
       this.broadcast("chat", { ...base, scope: "everyone" });
+      persist("everyone");
       return;
     }
-
     if (isSpotlight(this.map, p.x, p.y)) {
       this.broadcast("chat", { ...base, scope: "spotlight" });
+      persist("spotlight");
       return;
     }
-
     const scope = p.zone ? "zone" : "nearby";
+    const recipients: string[] = [];
     for (const c of this.clients) {
-      const other = this.state.players.get(c.sessionId);
+      const other = this.player(c);
       if (!other) continue;
-      if (c === client || canHear(this.map, p, other)) c.send("chat", { ...base, scope });
+      if (c === client || canHear(this.map, p, other)) { c.send("chat", { ...base, scope }); if (c !== client) recipients.push(other.userId); }
     }
+    persist(scope, { recipients });
   }
 
-  private handleBuild(client: Client, msg: BuildIn) {
+  private handleBuild(msg: BuildIn) {
     if (!msg || !inBounds(this.map, msg.x, msg.y) || !Number.isInteger(msg.tile)) return;
     const i = idx(this.map, msg.x, msg.y);
     if (msg.layer === "floor") {
       if (!Object.values(F).includes(msg.tile as any)) return;
-      this.map.floor[i] = msg.tile;
-      this.state.floor[i] = msg.tile;
+      this.map.floor[i] = msg.tile; this.state.floor[i] = msg.tile;
     } else if (msg.layer === "objects") {
       if (!Object.values(O).includes(msg.tile as any)) return;
-      this.map.objects[i] = msg.tile;
-      this.state.objects[i] = msg.tile;
+      this.map.objects[i] = msg.tile; this.state.objects[i] = msg.tile;
     } else return;
-
-    // If someone is now standing inside a solid tile, push them to the spawn.
     for (const [sid, p] of this.state.players) {
-      if (p.x === msg.x && p.y === msg.y && !stepTarget(this.map, p.x, p.y, 0) && !stepTarget(this.map, p.x, p.y, 3) && !stepTarget(this.map, p.x, p.y, 1) && !stepTarget(this.map, p.x, p.y, 2)) {
-        const s = this.freeSpawn();
-        p.x = s.x; p.y = s.y;
-        const c = this.clients.find((c) => c.sessionId === sid);
-        if (c) this.afterMove(c, p);
+      if (p.x === msg.x && p.y === msg.y && !isWalkable(this.map, p.x, p.y)) {
+        const s = this.freeSpawn(); p.x = s.x; p.y = s.y;
+        const c = this.clients.find((c) => c.sessionId === sid); if (c) this.afterMove(c, p);
       }
       p.sitting = SITTABLE.has(this.map.objects[idx(this.map, p.x, p.y)]);
     }
@@ -217,71 +430,38 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     p.emote = emote;
     const old = this.emoteTimers.get(p.id);
     if (old) clearTimeout(old);
-    this.emoteTimers.set(p.id, setTimeout(() => {
-      const cur = this.state.players.get(p.id);
-      if (cur) cur.emote = "";
-      this.emoteTimers.delete(p.id);
-    }, EMOTE_MS));
+    this.emoteTimers.set(p.id, setTimeout(() => { const cur = this.state.players.get(p.id); if (cur) cur.emote = ""; this.emoteTimers.delete(p.id); }, EMOTE_MS));
   }
 
-  private removePlayer(sessionId: string) {
+  private removePlayer(sessionId: string, silent = false) {
     const p = this.state.players.get(sessionId);
     if (!p) return;
     this.state.players.delete(sessionId);
     this.lastStep.delete(sessionId);
     const t = this.emoteTimers.get(sessionId);
     if (t) clearTimeout(t);
-    this.broadcast("system", { text: `${p.name} saiu`, ts: Date.now() });
+    if (!silent) this.broadcast("system", { text: `${p.name} saiu`, ts: Date.now() });
   }
 
   private freeSpawn() {
     const { x, y } = this.map.spawn;
     const taken = new Set<string>();
     for (const p of this.state.players.values()) taken.add(`${p.x},${p.y}`);
-    // Spiral out from spawn until a free, walkable tile is found.
-    for (let r = 0; r < 6; r++) {
+    for (let r = 0; r < 8; r++) {
       for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
         const tx = x + dx, ty = y + dy;
-        if (!taken.has(`${tx},${ty}`) && stepTarget(this.map, tx - 1, ty, 2)) return { x: tx, y: ty };
+        if (!taken.has(`${tx},${ty}`) && isWalkable(this.map, tx, ty)) return { x: tx, y: ty };
       }
     }
     return { x, y };
   }
 
-  // ---------------------------------------------------------------------
-  private loadData(): { floor?: number[]; objects?: number[]; notes?: Record<string, string> } | null {
-    try {
-      if (!fs.existsSync(DATA_FILE)) return null;
-      return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-    } catch (e) {
-      console.warn("Could not read", DATA_FILE, e);
-      return null;
-    }
-  }
-
   private scheduleSave() {
     if (this.saveTimer) return;
-    this.saveTimer = setTimeout(() => this.flushSave(), 1000);
+    this.saveTimer = setTimeout(() => this.flushSave(), 800);
   }
-
   private flushSave() {
     if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
-    try {
-      fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
-      const notes: Record<string, string> = {};
-      for (const [k, v] of this.state.notes) notes[k] = v;
-      fs.writeFileSync(DATA_FILE, JSON.stringify({ floor: [...this.map.floor], objects: [...this.map.objects], notes }));
-    } catch (e) {
-      console.warn("Could not save", DATA_FILE, e);
-    }
+    try { S.saveMapData(this.mapRow.id, this.map); } catch (e) { console.warn("could not save map", e); }
   }
-}
-
-function sanitizeName(n?: string) {
-  return (n ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 24);
-}
-
-const COLORS = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899"];
-function randomColor() {
-  return COLORS[Math.floor(Math.random() * COLORS.length)];
 }

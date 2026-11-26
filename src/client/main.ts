@@ -1,84 +1,66 @@
 import Phaser from "phaser";
 import { net } from "./net";
+import { bus } from "./bus";
 import { OfficeScene } from "./scenes/OfficeScene";
 import { initUI } from "./ui/index";
-import { bus } from "./bus";
-import { drawAvatarSheet, SKINS, AV_W, AV_H } from "./textures/avatars";
+import { spaces, getToken, setToken, ApiError } from "./api";
+import { renderHome, renderInvite, authBox, currentUser } from "./pages/home";
+import { $, el, esc } from "./ui/common";
 
-const COLORS = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899"];
-const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
+const app = $("#app");
+let game: Phaser.Game | null = null;
 
-let color = COLORS[Math.floor(Math.random() * COLORS.length)];
-let skin = Math.floor(Math.random() * SKINS.length);
-try {
-  const saved = JSON.parse(localStorage.getItem("gather-lite:profile") ?? "null");
-  if (saved) { $<HTMLInputElement>("#login-name").value = saved.name ?? ""; color = saved.color ?? color; skin = saved.skin ?? skin; }
-} catch {}
-
-// Allow ?name=&color=&skin= for quick joins (used by tests too).
-const qs = new URLSearchParams(location.search);
-if (qs.get("name")) $<HTMLInputElement>("#login-name").value = qs.get("name")!;
-if (qs.get("color")) color = "#" + qs.get("color")!.replace("#", "");
-if (qs.get("skin")) skin = Number(qs.get("skin")) || 0;
-
-function renderPickers() {
-  const cs = $("#login-colors");
-  cs.innerHTML = "";
-  for (const c of COLORS) {
-    const d = document.createElement("div");
-    d.className = "swatch" + (c === color ? " active" : "");
-    d.style.background = c;
-    d.addEventListener("click", () => { color = c; renderPickers(); });
-    cs.appendChild(d);
-  }
-  const ss = $("#login-skins");
-  ss.innerHTML = "";
-  SKINS.forEach((s, i) => {
-    const d = document.createElement("div");
-    d.className = "skin" + (i === skin ? " active" : "");
-    d.textContent = s.name;
-    d.addEventListener("click", () => { skin = i; renderPickers(); });
-    ss.appendChild(d);
-  });
-  const sheet = drawAvatarSheet(document.createElement("canvas"), skin, color);
-  const pv = $<HTMLCanvasElement>("#login-preview");
-  const ctx = pv.getContext("2d")!;
-  ctx.imageSmoothingEnabled = false;
-  ctx.clearRect(0, 0, pv.width, pv.height);
-  ctx.drawImage(sheet, 0, 0, AV_W, AV_H, 0, 0, AV_W * 2, AV_H * 2);
+async function route() {
+  const path = location.pathname;
+  const m = path.match(/^\/s\/([a-z0-9-]+)\/?$/);
+  const inv = path.match(/^\/invite\/([A-Za-z0-9_-]+)\/?$/);
+  if (m) return enterSpace(m[1]);
+  if (inv) return renderInvite(app, inv[1]);
+  return renderHome(app);
 }
-renderPickers();
 
-$<HTMLFormElement>("#login-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const name = $<HTMLInputElement>("#login-name").value.trim();
-  if (!name) return;
-  const btn = $<HTMLButtonElement>("#login-submit");
-  btn.disabled = true; btn.textContent = "Conectando…";
-  $("#login-error").textContent = "";
-  try {
-    localStorage.setItem("gather-lite:profile", JSON.stringify({ name, color, skin }));
-  } catch {}
-  try {
-    await net.join({ name, color, skin });
-    (window as any).__net = net; (window as any).__bus = bus;
-    bus.on("scene:ready", (s) => ((window as any).__scene = s));
-    $("#login").hidden = true;
-    initUI();
-    new Phaser.Game({
-      type: Phaser.AUTO,
-      parent: "game",
-      backgroundColor: "#0b1220",
-      pixelArt: true,
-      scale: { mode: Phaser.Scale.RESIZE, width: "100%", height: "100%" },
-      scene: [OfficeScene],
-      audio: { noAudio: true },
-    });
-  } catch (err: any) {
-    console.error(err);
-    $("#login-error").textContent = "Não foi possível conectar ao servidor: " + (err?.message ?? err);
-    btn.disabled = false; btn.textContent = "Entrar";
+async function enterSpace(slug: string) {
+  app.innerHTML = "";
+  // ?guest=Name lets tests/links join a public space without the login form.
+  const qs = new URLSearchParams(location.search);
+  let user = await currentUser();
+  if (!user && qs.get("guest")) {
+    const { auth } = await import("./api");
+    const r = await auth.guest(qs.get("guest")!); setToken(r.token); user = r.user;
+    if (qs.get("avatar")) { try { await auth.update({ avatar: JSON.parse(qs.get("avatar")!) }); } catch {} }
   }
-});
+  if (!user) {
+    const box = el(`<div class="overlay" style="position:static;min-height:100vh"></div>`);
+    app.appendChild(box);
+    await authBox(box, { allowGuest: true, title: "Entrar no espaço", intro: "Entre com sua conta ou como visitante." });
+    return enterSpace(slug);
+  }
+  let info;
+  try { info = (await spaces.get(slug)).space; }
+  catch (e: any) {
+    const msg = e instanceof ApiError && e.body?.isPrivate ? `"${e.body.name}" é privado. Peça um link de convite para quem administra o espaço.` : e.message;
+    app.appendChild(el(`<div class="overlay"><div class="card"><h1>Sem acesso</h1><p class="muted">${esc(msg)}</p><a href="/">voltar</a></div></div>`));
+    return;
+  }
+  const mapId = qs.get("map") && info.maps.some((x) => x.id === qs.get("map")) ? qs.get("map")! : (info.maps.find((x) => x.is_default) ?? info.maps[0]).id;
+  const loading = el(`<div class="overlay"><div class="card center"><p>Entrando em <b>${esc(info.name)}</b>…</p></div></div>`);
+  app.appendChild(loading);
+  try {
+    await net.join({ spaceId: info.id, mapId });
+  } catch (e: any) {
+    loading.innerHTML = `<div class="card"><h1>Não foi possível entrar</h1><p class="muted">${esc(e?.message ?? e)}</p><a href="/">voltar</a></div>`;
+    return;
+  }
+  app.innerHTML = "";
+  (window as any).__net = net; (window as any).__bus = bus;
+  bus.on("scene:ready", (s) => ((window as any).__scene = s));
+  initUI(info);
+  game = new Phaser.Game({
+    type: Phaser.AUTO, parent: "game", backgroundColor: "#0b1220", pixelArt: true,
+    scale: { mode: Phaser.Scale.RESIZE, width: "100%", height: "100%" },
+    scene: [OfficeScene], audio: { noAudio: true }, input: { activePointers: 3 },
+  });
+  bus.on("map:switched", () => { history.replaceState(null, "", `/s/${slug}?map=${net.state.mapId}`); game!.scene.getScene("office").scene.restart(); });
+}
 
-if (qs.get("autojoin") === "1") $<HTMLFormElement>("#login-form").requestSubmit();
+route();
