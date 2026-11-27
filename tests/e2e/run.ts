@@ -80,8 +80,13 @@ async function open(browser: Browser, url: string, token?: string, opts: any = {
 }
 async function joinSpace(browser: Browser, slug: string, token?: string, query = "", opts: any = {}) {
   const s = await open(browser, `${BASE}/s/${slug}${query}`, token, opts);
-  await s.page.waitForSelector("#hud:not([hidden])", { timeout: 40000 });
-  await s.page.waitForFunction(() => (window as any).__scene?.me, null, { timeout: 30000 });
+  try {
+    await s.page.waitForSelector("#hud:not([hidden])", { timeout: 60000 });
+    await s.page.waitForFunction(() => (window as any).__scene?.me, null, { timeout: 60000 });
+  } catch (e) {
+    console.log("      join debug:", JSON.stringify({ url: s.page.url(), body: (await s.page.evaluate(() => document.body.innerText.slice(0, 200))), errors: s.errors.slice(0, 3) }));
+    throw e;
+  }
   return s;
 }
 
@@ -126,10 +131,11 @@ async function main() {
     const page = await ctx.newPage();
     await page.goto(`${BASE}/s/${slug}`);
     await page.waitForSelector(".overlay .avatar-editor");
+    await page.click('.avatar-editor .chip:has-text("Menina")');
     await page.click('.avatar-editor .chip:has-text("Chapéu")');
     await page.click(".overlay button.primary");
     await page.waitForFunction(() => (window as any).__scene?.me, null, { timeout: 15000 });
-    await waitFor(async () => JSON.parse((await me(page)).avatar).accessory === 2, "picked accessory applied");
+    await waitFor(async () => { const av = JSON.parse((await me(page)).avatar); return av.accessory === 2 && av.body === 1; }, "picked body and accessory applied");
     await page.click('#toolbar button[data-action="avatar"]');
     await page.waitForSelector("#modal:not([hidden]) .avatar-editor");
     await page.click('.avatar-editor .chip:has-text("Coroa")');
@@ -265,10 +271,11 @@ async function main() {
     await waitFor(async () => (await players(b)).find((p) => p.name === "Alice")!.status === "dnd", "Bob sees status");
     await teleport(a, 15, 5);
     await waitFor(async () => (await me(a)).sitting === true, "sitting");
-    await send(a, "profile", { name: "Alice M.", avatar: { skin: 3, hair: 1, hairColor: 2, shirt: "#ec4899", pants: 1, accessory: 1 } });
-    await waitFor(async () => { const p = (await players(b)).find((p) => p.name === "Alice M."); return !!p && p.avatar.includes("#ec4899"); }, "Bob sees new name and avatar");
+    assert((await a.evaluate(() => { const n = (window as any).__net; const s = (window as any).__scene; return n.me.dir === 0 && s.me.sprite.frame.name === "sit-0"; })), "sitting faces forward");
+    await send(a, "profile", { name: "Alice M.", avatar: { body: 1, skin: 3, hair: 1, hairColor: 2, shirt: "#ec4899", pants: 1, accessory: 1 } });
+    await waitFor(async () => { const p = (await players(b)).find((p) => p.name === "Alice M."); return !!p && p.avatar.includes("#ec4899") && p.avatar.includes('"body":1'); }, "Bob sees new name, body and avatar");
     const meApi = await api("GET", "/auth/me", undefined, aliceToken);
-    assert(meApi.user.name === "Alice M." && meApi.user.avatar.accessory === 1, "profile persisted in DB");
+    assert(meApi.user.name === "Alice M." && meApi.user.avatar.accessory === 1 && meApi.user.avatar.body === 1, "profile persisted in DB");
   });
 
   await step("objects: note, shared board, poll, timer, image", async () => {
@@ -423,8 +430,8 @@ async function main() {
     await s.ctx.close();
     const inv = await api("POST", `/spaces/${pslug}/invites`, { role: "member" }, aliceToken);
     const s2 = await open(browser, `${BASE}/invite/${inv.token}`, bobReg.token);
-    await s2.page.waitForURL(new RegExp(`/s/${pslug}`), { timeout: 15000 });
-    await s2.page.waitForFunction(() => (window as any).__scene?.me, null, { timeout: 15000 });
+    await s2.page.waitForURL(new RegExp(`/s/${pslug}`), { timeout: 30000 });
+    await s2.page.waitForFunction(() => (window as any).__scene?.me, null, { timeout: 60000 });
     assert((await me(s2.page)).role === "member", "Bob is member after invite");
     await s2.ctx.close();
     // a brand-new visitor can accept an invite as guest from the invite page
@@ -432,8 +439,8 @@ async function main() {
     await s3.page.click('button[data-m="guest"]');
     await s3.page.fill('[name="name"]', "Dani");
     await s3.page.click('button[type="submit"]');
-    await s3.page.waitForURL(new RegExp(`/s/${pslug}`), { timeout: 15000 });
-    await s3.page.waitForFunction(() => (window as any).__scene?.me, null, { timeout: 15000 });
+    await s3.page.waitForURL(new RegExp(`/s/${pslug}`), { timeout: 30000 });
+    await s3.page.waitForFunction(() => (window as any).__scene?.me, null, { timeout: 60000 });
     assert((await me(s3.page)).name === "Dani", "guest joined via invite");
     await s3.ctx.close();
     const bad = await api("POST", `/invites/inv_nope/accept`, undefined, bobReg.token);

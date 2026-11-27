@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import { net } from "./net";
 import { bus } from "./bus";
-import { OfficeScene } from "./scenes/OfficeScene";
+import { OfficeScene, LOW_FX } from "./scenes/OfficeScene";
 import { initUI } from "./ui/index";
 import { spaces, getToken, setToken, ApiError } from "./api";
 import { renderHome, renderInvite, authBox, currentUser } from "./pages/home";
@@ -81,8 +81,11 @@ async function enterSpace(slug: string) {
   (window as any).__net = net; (window as any).__bus = bus;
   bus.on("scene:ready", (s) => ((window as any).__scene = s));
   initUI(info);
+  try { await Promise.race([document.fonts.load("600 10px Inter"), new Promise((r) => setTimeout(r, 1500))]); } catch {}
   game = new Phaser.Game({
-    type: Phaser.AUTO, parent: "game", backgroundColor: "#0b1220", pixelArt: true,
+    // pixelArt is off so text renders smooth; tiles/avatars opt into NEAREST filtering individually.
+    type: Phaser.AUTO, parent: "game", backgroundColor: "#0b1220", pixelArt: false, antialias: false, roundPixels: true,
+    fps: { target: LOW_FX ? 20 : 60, min: 10 }, // automation runs on a software GPU
     scale: { mode: Phaser.Scale.RESIZE, width: "100%", height: "100%" },
     scene: [OfficeScene], audio: { noAudio: true }, input: { activePointers: 3 },
   });

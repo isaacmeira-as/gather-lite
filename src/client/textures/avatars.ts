@@ -25,9 +25,21 @@ function drawFrame(c: Ctx, dir: number, frame: number, a: AvatarConfig, sitting 
   const bob = frame === 1 || frame === 3 ? 1 : 0;         // body bounce
   const by = (sitting ? 6 : 0) + bob;
   const side = dir === 1 || dir === 2;
+  const fem = a.body === 1;
+  const acc = a.accessory;
+  // Feminine body: slimmer torso, skirt instead of trousers, eyelashes and a bow.
+  if (fem) {
+    if (sitting) { r(c, 8, 32, 16, 6, shirtD); r(c, 9, 36, 6, 4, skin); r(c, 17, 36, 6, 4, skin); r(c, 9, 38, 6, 2, "#111827"); r(c, 17, 38, 6, 2, "#111827"); }
+    else if (side) { const f = dir === 1 ? -1 : 1; r(c, 10, 26, 12, 7, shirtD); r(c, 9, 31, 14, 2, shirtD); r(c, 12 + walk * 2 * f, 33, 4, 4, skin); r(c, 16 - walk * 2 * f, 33, 4, 4, skin); r(c, 12 + walk * 2 * f, 36, 4, 2, pants); r(c, 16 - walk * 2 * f, 36, 4, 2, pants); }
+    else { r(c, 9, 26, 14, 6, shirtD); r(c, 8, 30, 16, 2, shirtD); const lu = walk > 0 ? 2 : 0, ru = walk < 0 ? 2 : 0; r(c, 10, 32 + lu, 5, 5 - lu, skin); r(c, 17, 32 + ru, 5, 5 - ru, skin); r(c, 10, 36, 5, 2, pants); r(c, 17, 36, 5, 2, pants); }
+    r(c, 10, 17 + by, 12, 10, shirt); r(c, 10, 17 + by, 12, 2, shirtL);
+    if (side) { const ax = dir === 1 ? 11 : 17; r(c, ax, 18 + by + walk * 2, 4, 9, shirt); r(c, ax, 25 + by + walk * 2, 4, 2, skin); }
+    else { r(c, 7, 18 + by - walk * 2, 3, 8, shirt); r(c, 22, 18 + by + walk * 2, 3, 8, shirt); r(c, 7, 25 + by - walk * 2, 3, 2, skin); r(c, 22, 25 + by + walk * 2, 3, 2, skin); }
+  }
 
   // legs
-  if (sitting) {
+  if (fem) { /* drawn above */ }
+  else if (sitting) {
     r(c, 9, 34, 6, 6, pants); r(c, 17, 34, 6, 6, pants); r(c, 9, 38, 6, 2, "#111827"); r(c, 17, 38, 6, 2, "#111827");
   } else if (side) {
     const f = dir === 1 ? -1 : 1;
@@ -39,12 +51,15 @@ function drawFrame(c: Ctx, dir: number, frame: number, a: AvatarConfig, sitting 
     r(c, 10, 35, 5, 3, "#111827"); r(c, 17, 35, 5, 3, "#111827");
   }
   // body
+  if (!fem) {
   r(c, 9, 17 + by, 14, 12, shirt);
   r(c, 9, 17 + by, 14, 2, shirtL);
   r(c, 9, 25 + by, 14, 4, shirtD);
   if (dir === 0) r(c, 15, 18 + by, 2, 7, shirtD);
+  }
   // arms
-  if (side) { const ax = dir === 1 ? 11 : 17; r(c, ax, 18 + by + walk * 2, 4, 10, shirt); r(c, ax, 26 + by + walk * 2, 4, 2, skin); }
+  if (fem) { /* drawn above */ }
+  else if (side) { const ax = dir === 1 ? 11 : 17; r(c, ax, 18 + by + walk * 2, 4, 10, shirt); r(c, ax, 26 + by + walk * 2, 4, 2, skin); }
   else { r(c, 6, 18 + by - walk * 2, 3, 9, shirt); r(c, 23, 18 + by + walk * 2, 3, 9, shirt); r(c, 6, 26 + by - walk * 2, 3, 2, skin); r(c, 23, 26 + by + walk * 2, 3, 2, skin); }
   // head
   r(c, 8, 4 + by, 16, 14, skin);
@@ -62,11 +77,11 @@ function drawFrame(c: Ctx, dir: number, frame: number, a: AvatarConfig, sitting 
   if (h === 3) { for (let i = 0; i < 4; i++) r(c, 8 + i * 4, 0 + by, 2, 3, hair); }
   if (h === 5) { r(c, 5, 3 + by, 22, 4, hair); r(c, 5, 6 + by, 4, 7, hair); r(c, 23, 6 + by, 4, 7, hair); r(c, 9, 0 + by, 14, 3, hair); r(c, 7, 4 + by, 2, 2, hairL); r(c, 20, 1 + by, 2, 2, hairL); }
   // face
-  if (dir === 0) { r(c, 11, 10 + by, 2, 3, "#111827"); r(c, 19, 10 + by, 2, 3, "#111827"); r(c, 11, 10 + by, 1, 1, "#fff"); r(c, 19, 10 + by, 1, 1, "#fff"); r(c, 14, 15 + by, 4, 1, "#9f1239"); r(c, 10, 13 + by, 2, 1, "#f9a8d4aa"); r(c, 20, 13 + by, 2, 1, "#f9a8d4aa"); }
-  else if (dir === 1) { r(c, 9, 10 + by, 2, 3, "#111827"); r(c, 9, 10 + by, 1, 1, "#fff"); }
-  else if (dir === 2) { r(c, 21, 10 + by, 2, 3, "#111827"); r(c, 22, 10 + by, 1, 1, "#fff"); }
+  if (dir === 0) { r(c, 11, 10 + by, 2, 3, "#111827"); r(c, 19, 10 + by, 2, 3, "#111827"); r(c, 11, 10 + by, 1, 1, "#fff"); r(c, 19, 10 + by, 1, 1, "#fff"); r(c, 14, 15 + by, 4, 1, fem ? "#e11d48" : "#9f1239"); r(c, 10, 13 + by, 2, 1, "#f9a8d4aa"); r(c, 20, 13 + by, 2, 1, "#f9a8d4aa"); if (fem) { r(c, 10, 9 + by, 4, 1, "#111827"); r(c, 18, 9 + by, 4, 1, "#111827"); } }
+  else if (dir === 1) { r(c, 9, 10 + by, 2, 3, "#111827"); r(c, 9, 10 + by, 1, 1, "#fff"); if (fem) r(c, 8, 9 + by, 3, 1, "#111827"); }
+  else if (dir === 2) { r(c, 21, 10 + by, 2, 3, "#111827"); r(c, 22, 10 + by, 1, 1, "#fff"); if (fem) r(c, 21, 9 + by, 3, 1, "#111827"); }
+  if (fem && h !== 4 && acc === 0) { r(c, 21, 2 + by, 4, 3, "#f472b6"); r(c, 22, 3 + by, 2, 1, "#fbcfe8"); }
   // accessories: 1 glasses, 2 hat, 3 headphones, 4 crown
-  const acc = a.accessory;
   if (acc === 1 && dir !== 3) {
     if (dir === 0) { r(c, 10, 9 + by, 4, 5, "#111827"); r(c, 18, 9 + by, 4, 5, "#111827"); r(c, 11, 10 + by, 2, 3, "#93c5fd"); r(c, 19, 10 + by, 2, 3, "#93c5fd"); r(c, 14, 11 + by, 4, 1, "#111827"); }
     else if (dir === 1) { r(c, 8, 9 + by, 4, 5, "#111827"); r(c, 9, 10 + by, 2, 3, "#93c5fd"); }

@@ -1,4 +1,4 @@
-import { AvatarConfig, SKIN_TONES, HAIR_STYLES, HAIR_COLORS, SHIRT_COLORS, PANTS_COLORS, ACCESSORIES, PETS, normalizeAvatar } from "../../shared/avatar";
+import { AvatarConfig, SKIN_TONES, HAIR_STYLES, HAIR_COLORS, SHIRT_COLORS, PANTS_COLORS, ACCESSORIES, PETS, BODIES, normalizeAvatar } from "../../shared/avatar";
 import { drawAvatarPreview } from "../textures/avatars";
 import { el } from "./common";
 
@@ -36,11 +36,12 @@ export function avatarEditor(root: HTMLElement, initial: AvatarConfig, onChange:
   const render = () => {
     opts.innerHTML = "";
     opts.append(
+      chipRow("Corpo", BODIES, () => cfg.body, (i) => (cfg.body = i)),
       swatchRow("Pele", SKIN_TONES, () => cfg.skin, (i) => (cfg.skin = i)),
       chipRow("Cabelo", HAIR_STYLES, () => cfg.hair, (i) => (cfg.hair = i)),
       swatchRow("Cor do cabelo", HAIR_COLORS, () => cfg.hairColor, (i) => (cfg.hairColor = i)),
       swatchRow("Camisa", SHIRT_COLORS, () => cfg.shirt, (_i, c) => (cfg.shirt = c)),
-      swatchRow("Calça", PANTS_COLORS, () => cfg.pants, (i) => (cfg.pants = i)),
+      swatchRow(cfg.body === 1 ? "Sapatos" : "Calça", PANTS_COLORS, () => cfg.pants, (i) => (cfg.pants = i)),
       chipRow("Acessório", ACCESSORIES, () => cfg.accessory, (i) => (cfg.accessory = i)),
       chipRow("Pet", PETS, () => cfg.pet, (i) => (cfg.pet = i)),
     );

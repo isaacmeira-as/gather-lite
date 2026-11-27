@@ -15,7 +15,8 @@ const BUBBLE_MS = 5000;
 /** Automation (Playwright) runs on a software GPU: skip the expensive effects unless ?fx=1 is given. */
 export const LOW_FX = typeof navigator !== "undefined" && (navigator as any).webdriver && !new URLSearchParams(location.search).has("fx");
 const STATUS_COLORS: Record<string, number> = { available: 0x22c55e, busy: 0xf59e0b, dnd: 0xef4444 };
-const FONT = "ui-sans-serif, system-ui, sans-serif";
+const FONT = "Inter, ui-sans-serif, system-ui, -apple-system, sans-serif";
+const NEAREST = Phaser.Textures.FilterMode.NEAREST;
 const VARIANTS: Record<number, number[]> = { [F.GRASS]: [F.GRASS, F.GRASS, V.GRASS_B, V.GRASS_C], [F.WOOD]: [F.WOOD, F.WOOD, V.WOOD_B], [F.STONE]: [F.STONE, V.STONE_B], [F.CARPET_BLUE]: [F.CARPET_BLUE, V.CARPET_BLUE_B], [F.PATH]: [F.PATH, V.PATH_B] };
 const hash2 = (x: number, y: number) => ((x * 73856093) ^ (y * 19349663)) >>> 0;
 const ANIMATED: Record<number, number> = { [F.WATER]: V.WATER_B, [O.FOUNTAIN]: V.FOUNTAIN_B, [O.COMPUTER]: V.COMPUTER_B, [O.ARCADE]: V.ARCADE_B, [O.SPOTLIGHT]: V.SPOTLIGHT_B };
@@ -54,13 +55,13 @@ class PlayerSprite extends Phaser.GameObjects.Container {
     this.texKey = scene.ensureAvatarTexture(view.avatar);
     this.shadow = scene.add.ellipse(0, 11, 20, 8, 0x000000, 0.28);
     this.sprite = scene.add.sprite(0, 12, this.texKey, `0-0`).setOrigin(0.5, 1);
-    this.nameText = scene.add.text(0, -32, view.name, { fontFamily: FONT, fontSize: "10px", color: "#ffffff", stroke: "#0b1220", strokeThickness: 3, resolution: 3 }).setOrigin(0.5, 1);
-    this.roleText = scene.add.text(0, -32, "", { fontFamily: FONT, fontSize: "7px", color: "#facc15", stroke: "#0b1220", strokeThickness: 2, resolution: 3 }).setOrigin(0, 1);
+    this.nameText = scene.add.text(0, -32, view.name, { fontFamily: FONT, fontSize: "10px", fontStyle: "600", color: "#ffffff", stroke: "#0b1220", strokeThickness: 3, resolution: 4 }).setOrigin(0.5, 1);
+    this.roleText = scene.add.text(0, -32, "", { fontFamily: FONT, fontSize: "8px", color: "#facc15", stroke: "#0b1220", strokeThickness: 2, resolution: 4 }).setOrigin(0, 1);
     this.statusDot = scene.add.circle(0, -36, 2.5, 0x22c55e).setStrokeStyle(1, 0x0b1220, 0.8);
-    this.emoteText = scene.add.text(0, -40, "", { fontSize: "16px", resolution: 3 }).setOrigin(0.5, 1).setVisible(false);
+    this.emoteText = scene.add.text(0, -40, "", { fontSize: "16px", resolution: 4 }).setOrigin(0.5, 1).setVisible(false);
     this.bubbleBg = scene.add.graphics();
-    this.bubbleText = scene.add.text(0, 0, "", { fontFamily: FONT, fontSize: "9px", color: "#111827", wordWrap: { width: 110 }, resolution: 3, align: "center" }).setOrigin(0.5, 1);
-    this.bubble = scene.add.container(0, -42, [this.bubbleBg, this.bubbleText]).setVisible(false);
+    this.bubbleText = scene.add.text(0, 0, "", { fontFamily: FONT, fontSize: "9px", fontStyle: "500", color: "#111827", wordWrap: { width: 110 }, resolution: 4, align: "center" }).setOrigin(0.5, 1);
+    this.bubble = scene.add.container(0, -50, [this.bubbleBg, this.bubbleText]).setVisible(false);
     this.add([this.shadow, this.sprite, this.nameText, this.roleText, this.statusDot, this.emoteText, this.bubble]);
     this.layoutName();
     scene.add.existing(this);
@@ -76,7 +77,7 @@ class PlayerSprite extends Phaser.GameObjects.Container {
     if (!pet) return;
     const scene = this.scene as OfficeScene;
     const key = `pet-${pet}`;
-    if (!scene.textures.exists(key)) { const tex = scene.textures.addCanvas(key, drawPetSheet(document.createElement("canvas"), pet))!; tex.add("0", 0, 0, 0, PET_W, PET_H); tex.add("1", 0, PET_W, 0, PET_W, PET_H); }
+    if (!scene.textures.exists(key)) { const tex = scene.textures.addCanvas(key, drawPetSheet(document.createElement("canvas"), pet))!; tex.setFilter(NEAREST); tex.add("0", 0, 0, 0, PET_W, PET_H); tex.add("1", 0, PET_W, 0, PET_W, PET_H); }
     this.pet = scene.add.image(this.x - 14, this.y + 6, key, "0").setDepth(this.y - 1);
   }
 
@@ -110,7 +111,7 @@ class PlayerSprite extends Phaser.GameObjects.Container {
 
   setFacing(dir: number) {
     if (!this.sprite?.anims) return;
-    if (this.view.sitting) this.sprite.setFrame(`sit-${Math.min(dir, 2)}`);
+    if (this.view.sitting) this.sprite.setFrame("sit-0"); // sitting always faces the camera
     else if (!this.sprite.anims.isPlaying) this.sprite.setFrame(`${dir}-0`);
   }
 
@@ -213,6 +214,7 @@ export class OfficeScene extends Phaser.Scene {
 
     if (!this.textures.exists("tiles")) {
       const tex = this.textures.addCanvas("tiles", drawTileset(document.createElement("canvas")))!;
+      tex.setFilter(NEAREST);
       // Named frames so single tiles can also be drawn as Images (tall objects, wall faces).
       for (let id = 0; id < TILESET_COLS * TILESET_ROWS; id++) tex.add(String(id), 0, (id % TILESET_COLS) * TILE, Math.floor(id / TILESET_COLS) * TILE, TILE, TILE);
     }
@@ -229,7 +231,7 @@ export class OfficeScene extends Phaser.Scene {
     this.gridGfx = this.add.graphics().setDepth(0.8).setVisible(false);
     this.dragGfx = this.add.graphics().setDepth(4999);
     this.buildCursor = this.add.rectangle(0, 0, TILE, TILE).setStrokeStyle(2, 0xfacc15).setOrigin(0).setDepth(5000).setVisible(false);
-    this.promptText = this.add.text(0, 0, "X", { fontFamily: FONT, fontSize: "10px", color: "#111827", backgroundColor: "#facc15", padding: { x: 5, y: 2 }, resolution: 3 }).setOrigin(0.5, 1).setDepth(6000).setVisible(false);
+    this.promptText = this.add.text(0, 0, "X", { fontFamily: FONT, fontSize: "10px", color: "#111827", backgroundColor: "#facc15", padding: { x: 5, y: 2 }, resolution: 4 }).setOrigin(0.5, 1).setDepth(6000).setVisible(false);
     this.drawZones();
     this.drawMarkers();
     this.lighting = new Lighting(this, this.mapData);
@@ -381,7 +383,7 @@ export class OfficeScene extends Phaser.Scene {
       const c = Phaser.Display.Color.HexStringToColor(z.color).color;
       this.zoneGfx.fillStyle(c, 0.12).fillRect(z.x * TILE, z.y * TILE, z.w * TILE, z.h * TILE);
       this.zoneGfx.lineStyle(2, c, 0.55).strokeRect(z.x * TILE + 1, z.y * TILE + 1, z.w * TILE - 2, z.h * TILE - 2);
-      this.zoneLabels.push(this.add.text(z.x * TILE + 3, z.y * TILE + 3, z.name, { fontFamily: FONT, fontSize: "8px", color: "#ffffff", backgroundColor: "#0b1220aa", padding: { x: 4, y: 2 }, resolution: 3 }).setDepth(8000).setAlpha(0.95));
+      this.zoneLabels.push(this.add.text(z.x * TILE + 3, z.y * TILE + 3, z.name, { fontFamily: FONT, fontSize: "8px", fontStyle: "600", color: "#ffffff", backgroundColor: "#0b1220aa", padding: { x: 4, y: 2 }, resolution: 4 }).setDepth(8000).setAlpha(0.95));
     }
   }
 
@@ -397,15 +399,15 @@ export class OfficeScene extends Phaser.Scene {
       const glow = this.add.image(p.x * TILE + TILE / 2, p.y * TILE + TILE / 2, "fx-light").setDisplaySize(64, 64).setTint(0xc084fc).setAlpha(0.4).setDepth(0.95).setBlendMode(Phaser.BlendModes.ADD);
       this.tweens.add({ targets: glow, scale: glow.scale * 1.25, duration: 1200, yoyo: true, repeat: -1, ease: "Sine.InOut" });
       this.portalGlows.push(glow);
-      this.markerLabels.push(this.add.text(p.x * TILE + TILE / 2, p.y * TILE - 1, `→ ${p.label || "portal"}`, { fontFamily: FONT, fontSize: "7px", color: "#f5f3ff", backgroundColor: "#581c87cc", padding: { x: 3, y: 1 }, resolution: 3 }).setOrigin(0.5, 1).setDepth(2));
+      this.markerLabels.push(this.add.text(p.x * TILE + TILE / 2, p.y * TILE - 1, `→ ${p.label || "portal"}`, { fontFamily: FONT, fontSize: "7px", color: "#f5f3ff", backgroundColor: "#581c87cc", padding: { x: 3, y: 1 }, resolution: 4 }).setOrigin(0.5, 1).setDepth(2));
     }
     if (!this.build.active) return;
     const s = this.mapData.spawn;
     this.markerGfx.lineStyle(2, 0x22c55e, 1).strokeCircle(s.x * TILE + TILE / 2, s.y * TILE + TILE / 2, 10);
-    this.markerLabels.push(this.add.text(s.x * TILE + TILE / 2, s.y * TILE - 1, "spawn", { fontFamily: FONT, fontSize: "7px", color: "#dcfce7", backgroundColor: "#14532dcc", padding: { x: 2, y: 1 }, resolution: 3 }).setOrigin(0.5, 1).setDepth(2));
+    this.markerLabels.push(this.add.text(s.x * TILE + TILE / 2, s.y * TILE - 1, "spawn", { fontFamily: FONT, fontSize: "7px", color: "#dcfce7", backgroundColor: "#14532dcc", padding: { x: 2, y: 1 }, resolution: 4 }).setOrigin(0.5, 1).setDepth(2));
     for (const it of this.mapData.interactables) {
       this.markerGfx.lineStyle(2, 0xfacc15, 0.9).strokeRect(it.x * TILE + 1, it.y * TILE + 1, TILE - 2, TILE - 2);
-      this.markerLabels.push(this.add.text(it.x * TILE + TILE / 2, it.y * TILE + TILE - 1, it.kind, { fontFamily: FONT, fontSize: "6px", color: "#111827", backgroundColor: "#facc15", padding: { x: 2, y: 0 }, resolution: 3 }).setOrigin(0.5, 1).setDepth(2));
+      this.markerLabels.push(this.add.text(it.x * TILE + TILE / 2, it.y * TILE + TILE - 1, it.kind, { fontFamily: FONT, fontSize: "6px", color: "#111827", backgroundColor: "#facc15", padding: { x: 2, y: 0 }, resolution: 4 }).setOrigin(0.5, 1).setDepth(2));
     }
   }
 
@@ -428,6 +430,7 @@ export class OfficeScene extends Phaser.Scene {
     const key = `av-${avatarKey(cfg)}`;
     if (this.textures.exists(key)) return key;
     const tex = this.textures.addCanvas(key, drawAvatarSheet(document.createElement("canvas"), cfg))!;
+    tex.setFilter(NEAREST);
     for (let dir = 0; dir < 4; dir++) {
       for (let f = 0; f < AV_FRAMES_PER_DIR; f++) tex.add(`${dir}-${f}`, 0, f * AV_W, dir * AV_H, AV_W, AV_H);
       this.anims.create({ key: `${key}-walk-${dir}`, frames: [{ key, frame: `${dir}-1` }, { key, frame: `${dir}-2` }, { key, frame: `${dir}-3` }, { key, frame: `${dir}-0` }], frameRate: 11, repeat: -1 });

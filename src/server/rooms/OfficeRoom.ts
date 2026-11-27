@@ -473,6 +473,7 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       if (!silent) client.send("zone", { id: zoneId, name: z?.name ?? "" });
     }
     p.sitting = SITTABLE.has(this.map.objects[idx(this.map, p.x, p.y)]);
+    if (p.sitting) p.dir = 0; // sit facing forward
     const portal = portalAt(this.map, p.x, p.y);
     if (portal && !silent) {
       const target = S.getMap(portal.targetMapId);
