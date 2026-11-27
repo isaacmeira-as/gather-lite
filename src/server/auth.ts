@@ -6,8 +6,8 @@ const SECRET = process.env.JWT_SECRET ?? (process.env.NODE_ENV === "production" 
 if (!SECRET) throw new Error("JWT_SECRET must be set in production");
 const TOKEN_TTL_MS = 30 * 24 * 3600 * 1000;
 
-export interface UserRow { id: string; email: string | null; name: string; password_hash: string | null; avatar: string; is_guest: number; created_at: number }
-export interface AuthUser { id: string; name: string; email: string | null; isGuest: boolean; avatar: any }
+export interface UserRow { id: string; email: string | null; name: string; password_hash: string | null; avatar: string; is_guest: number; created_at: number; status_text?: string }
+export interface AuthUser { id: string; name: string; email: string | null; isGuest: boolean; avatar: any; statusText?: string }
 
 // ---- passwords (scrypt, no native deps)
 export function hashPassword(pw: string) {
@@ -45,7 +45,7 @@ export function verifyToken(token?: string | null): { sub: string; exp: number }
 export function toAuthUser(u: UserRow): AuthUser {
   let avatar = {};
   try { avatar = JSON.parse(u.avatar); } catch {}
-  return { id: u.id, name: u.name, email: u.email, isGuest: !!u.is_guest, avatar };
+  return { id: u.id, name: u.name, email: u.email, isGuest: !!u.is_guest, avatar, statusText: u.status_text ?? "" };
 }
 
 export function userFromToken(token?: string | null): AuthUser | null {

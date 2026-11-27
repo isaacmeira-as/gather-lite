@@ -2,6 +2,7 @@ import { auth, spaces, getToken, setToken, User, ApiError } from "../api";
 import { $, esc, el } from "../ui/common";
 import { avatarEditor } from "../ui/avatar";
 import { randomAvatar, normalizeAvatar } from "../../shared/avatar";
+import { providers } from "../api";
 import { drawAvatarPreview } from "../textures/avatars";
 import { mapThumb } from "../ui/thumbs";
 
@@ -37,6 +38,7 @@ export function authBox(root: HTMLElement, opts: { allowGuest: boolean; title?: 
         } catch (ex: any) { err.textContent = ex.message; }
       });
       drawAvatarPreview(card.querySelector("canvas")!, randomAvatar(), 2);
+      providers().then((p) => { if (p.google && mode !== "guest") card.querySelector("button[type=submit]")!.insertAdjacentHTML("afterend", `<a class="wide-btn" style="display:block;text-align:center;margin-top:8px" href="/api/auth/google">Entrar com Google</a>`); }).catch(() => {});
       root.appendChild(card);
     };
     render();
@@ -57,7 +59,7 @@ export async function renderHome(root: HTMLElement) {
     <h2>Seus espaços</h2><div class="grid spaces"></div>
     ${user.isGuest ? '<p class="muted">Visitantes não criam espaços. <a href="#" data-a="logout">Crie uma conta</a> para ter o seu.</p>' : `<h2>Criar espaço</h2>
     <form class="card create row" style="max-width:none"><input name="name" placeholder="Nome do espaço" required maxlength="60" style="flex:1;min-width:160px" />
-      <select name="template"><option value="office">Escritório + jardim</option><option value="garden">Só jardim</option><option value="blank">Sala vazia</option></select>
+      <select name="template"><option value="office">Escritório + jardim</option><option value="coworking">Coworking</option><option value="classroom">Sala de aula</option><option value="event">Evento / auditório</option><option value="garden">Só jardim</option><option value="blank">Sala vazia</option></select>
       <label class="row" style="margin:0"><input type="checkbox" name="private" /> privado</label><button class="primary">Criar</button><p class="error" style="width:100%"></p></form>`}
     <h2>Tem um convite?</h2><form class="row invite"><input name="link" placeholder="Cole o link ou código do convite" style="flex:1;min-width:200px" /><button>Entrar</button></form></div>`);
   root.appendChild(page);

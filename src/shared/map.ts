@@ -10,7 +10,7 @@ export interface Zone {
   color: string;
 }
 
-export type InteractableKind = "iframe" | "note" | "board" | "emote" | "link" | "poll" | "timer" | "image";
+export type InteractableKind = "iframe" | "note" | "board" | "emote" | "link" | "poll" | "timer" | "image" | "game" | "draw" | "radio";
 export const INTERACTABLE_KINDS: { kind: InteractableKind; label: string; needs: ("url" | "text" | "emote" | "options")[] }[] = [
   { kind: "note", label: "Nota (texto)", needs: ["text"] },
   { kind: "board", label: "Quadro compartilhado", needs: [] },
@@ -19,6 +19,9 @@ export const INTERACTABLE_KINDS: { kind: InteractableKind; label: string; needs:
   { kind: "image", label: "Imagem", needs: ["url"] },
   { kind: "poll", label: "Enquete", needs: ["text", "options"] },
   { kind: "timer", label: "Timer compartilhado", needs: [] },
+  { kind: "game", label: "Jogo da velha (2 jogadores)", needs: [] },
+  { kind: "draw", label: "Lousa de desenho", needs: [] },
+  { kind: "radio", label: "Rádio / música (YouTube)", needs: ["url"] },
   { kind: "emote", label: "Emote ao usar", needs: ["emote"] },
 ];
 
@@ -290,6 +293,9 @@ export function buildDefaultMap(): MapData {
     { id: "enquete", x: 24, y: 13, kind: "poll", title: "Enquete do lounge", text: "Onde vai ser o happy hour?", options: ["Bar da esquina", "Rooftop", "Online mesmo"] },
     { id: "timer-sala-a", x: 14, y: 3, kind: "timer", title: "Timer da reunião" },
     { id: "quadro-ipe", x: 32, y: 3, kind: "image", title: "Quadro de parede", url: "https://picsum.photos/seed/gather/800/500" },
+    { id: "velha", x: 24, y: 15, kind: "game", title: "Jogo da velha" },
+    { id: "lousa", x: 26, y: 2, kind: "draw", title: "Lousa da Sala Ipê" },
+    { id: "radio", x: 32, y: 16, kind: "radio", title: "Rádio do lounge", url: "https://www.youtube.com/embed/jfKfPfyJRdk?autoplay=1" },
   );
 
   return m;
@@ -320,6 +326,63 @@ export function buildGardenMap(): MapData {
   for (const [x, y] of [[5, 15], [16, 8], [24, 22], [32, 15]]) set(x, y, O.FLOWERS);
   m.zones.push({ id: "gazebo", name: "Gazebo", x: 20, y: 15, w: 4, h: 3, color: "#84cc16" });
   m.spawn = { x: 18, y: 13 };
+  return m;
+}
+
+/** Coworking: open floor with desk pods, phone booths and a kitchen. */
+export function buildCoworkingMap(): MapData {
+  const m = buildBlankMap(36, 26, F.WOOD);
+  const setO = (x: number, y: number, t: number) => { m.objects[idx(m, x, y)] = t; };
+  const fillF = (x: number, y: number, w: number, h: number, t: number) => { for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) m.floor[idx(m, i, j)] = t; };
+  for (const wx of [4, 9, 14, 19, 24, 29]) setO(wx, 0, O.WINDOW);
+  for (let row = 0; row < 3; row++) for (let col = 0; col < 4; col++) {
+    const x = 3 + col * 7, y = 3 + row * 6;
+    setO(x, y, O.COMPUTER); setO(x + 1, y, O.DESK); setO(x + 2, y, O.COMPUTER); setO(x, y + 1, O.CHAIR); setO(x + 1, y + 1, O.CHAIR); setO(x + 2, y + 1, O.CHAIR);
+    setO(x + 4, y, O.PLANT);
+  }
+  fillF(31, 2, 4, 3, F.CARPET_BLUE); setO(31, 2, O.LAMP); setO(33, 3, O.CHAIR); m.zones.push({ id: "booth-1", name: "Cabine 1", x: 31, y: 2, w: 4, h: 3, color: "#f59e0b" });
+  fillF(31, 7, 4, 3, F.CARPET_BLUE); setO(31, 7, O.LAMP); setO(33, 8, O.CHAIR); m.zones.push({ id: "booth-2", name: "Cabine 2", x: 31, y: 7, w: 4, h: 3, color: "#f59e0b" });
+  fillF(2, 21, 12, 4, F.STONE); setO(2, 21, O.KITCHEN); setO(3, 21, O.KITCHEN); setO(4, 21, O.FRIDGE); setO(6, 21, O.COFFEE); setO(8, 21, O.VENDING); setO(10, 22, O.TABLE); setO(9, 22, O.CHAIR); setO(11, 22, O.CHAIR);
+  fillF(16, 20, 10, 5, F.CARPET_GREEN); setO(19, 21, O.TABLE); setO(20, 21, O.TABLE); setO(21, 21, O.TABLE); for (let i = 19; i <= 21; i++) { setO(i, 20, O.CHAIR); setO(i, 22, O.CHAIR); } setO(20, 24, O.WHITEBOARD); setO(17, 20, O.TV);
+  m.zones.push({ id: "meet", name: "Sala de reunião", x: 16, y: 20, w: 10, h: 5, color: "#22c55e" });
+  fillF(28, 20, 7, 5, F.RUG_RED); setO(29, 21, O.SOFA); setO(30, 21, O.SOFA); setO(31, 21, O.SOFA); setO(30, 23, O.TABLE); setO(33, 22, O.ARCADE); setO(28, 24, O.PLANT);
+  m.interactables.push({ id: "board", x: 20, y: 24, kind: "board", title: "Quadro da reunião" }, { id: "cafe", x: 6, y: 21, kind: "emote", title: "Café", emote: "☕" }, { id: "arcade", x: 33, y: 22, kind: "game", title: "Jogo da velha" }, { id: "tv", x: 17, y: 20, kind: "draw", title: "Lousa" });
+  m.spawn = { x: 18, y: 13 };
+  return m;
+}
+
+/** Classroom: rows of desks facing a whiteboard, plus a small library corner. */
+export function buildClassroomMap(): MapData {
+  const m = buildBlankMap(30, 22, F.CARPET_BLUE);
+  const setO = (x: number, y: number, t: number) => { m.objects[idx(m, x, y)] = t; };
+  for (const wx of [5, 10, 19, 24]) setO(wx, 0, O.WINDOW);
+  for (let x = 11; x <= 18; x++) setO(x, 0, x === 14 || x === 15 ? O.WHITEBOARD : O.WALL);
+  setO(14, 2, O.DESK); setO(15, 2, O.DESK); setO(14, 3, O.CHAIR); setO(15, 3, O.CHAIR); setO(13, 2, O.COMPUTER);
+  for (let row = 0; row < 4; row++) for (let col = 0; col < 5; col++) { const x = 5 + col * 4, y = 6 + row * 3; setO(x, y, O.DESK); setO(x + 1, y, O.DESK); setO(x, y + 1, O.CHAIR); setO(x + 1, y + 1, O.CHAIR); }
+  for (let y = 4; y <= 8; y++) setO(27, y, O.BOOKSHELF);
+  setO(2, 19, O.PLANT); setO(27, 19, O.PLANT); setO(2, 3, O.LOCKER); setO(2, 4, O.LOCKER); setO(2, 5, O.LOCKER);
+  m.zones.push({ id: "mesa-prof", name: "Mesa do professor", x: 12, y: 1, w: 6, h: 3, color: "#8b5cf6" });
+  m.interactables.push({ id: "lousa", x: 14, y: 0, kind: "draw", title: "Lousa da sala" }, { id: "enquete", x: 15, y: 0, kind: "poll", title: "Chamada / enquete", text: "Entenderam a aula de hoje?", options: ["Sim", "Mais ou menos", "Não"] }, { id: "timer", x: 13, y: 2, kind: "timer", title: "Tempo da atividade" }, { id: "biblio", x: 27, y: 6, kind: "note", title: "Biblioteca", text: "Materiais da turma ficam aqui." });
+  setO(15, 20, O.SPOTLIGHT);
+  m.spawn = { x: 15, y: 19 };
+  return m;
+}
+
+/** Event hall: stage with spotlight, audience benches, sponsor booths and a bar. */
+export function buildEventMap(): MapData {
+  const m = buildBlankMap(40, 28, F.CARPET_PURPLE);
+  const setO = (x: number, y: number, t: number) => { m.objects[idx(m, x, y)] = t; };
+  const fillF = (x: number, y: number, w: number, h: number, t: number) => { for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) m.floor[idx(m, i, j)] = t; };
+  fillF(12, 2, 16, 4, F.WOOD_DARK); setO(20, 3, O.SPOTLIGHT); setO(12, 2, O.LAMP); setO(27, 2, O.LAMP); setO(19, 1, O.TV); setO(21, 1, O.TV);
+  for (let row = 0; row < 5; row++) for (let x = 8; x <= 31; x += 3) if (x !== 20) setO(x, 8 + row * 2, O.BENCH);
+  fillF(2, 2, 6, 10, F.STONE); for (let y = 3; y <= 9; y += 3) { setO(3, y, O.TABLE); setO(4, y, O.TABLE); setO(3, y + 1, O.SIGN); }
+  m.zones.push({ id: "booths", name: "Estandes", x: 2, y: 2, w: 6, h: 10, color: "#f59e0b" });
+  fillF(33, 2, 5, 10, F.STONE); setO(34, 3, O.KITCHEN); setO(35, 3, O.KITCHEN); setO(36, 3, O.COFFEE); setO(34, 6, O.TABLE); setO(36, 6, O.TABLE); setO(34, 9, O.VENDING);
+  m.zones.push({ id: "bar", name: "Bar", x: 33, y: 2, w: 5, h: 10, color: "#ec4899" });
+  fillF(2, 20, 36, 6, F.RUG_RED); for (let x = 4; x <= 34; x += 6) { setO(x, 22, O.SOFA); setO(x + 1, 22, O.SOFA); setO(x, 24, O.TABLE); }
+  m.zones.push({ id: "lounge", name: "Networking", x: 2, y: 20, w: 36, h: 6, color: "#22c55e" });
+  m.interactables.push({ id: "palco", x: 20, y: 3, kind: "note", title: "Palco", text: "Quem fica no spotlight fala para todo o auditório." }, { id: "telao", x: 19, y: 1, kind: "iframe", title: "Telão", url: "https://www.youtube.com/embed/jfKfPfyJRdk" }, { id: "quiz", x: 21, y: 1, kind: "poll", title: "Quiz do evento", text: "Qual palestra você mais curtiu?", options: ["Abertura", "Produto", "Engenharia", "Encerramento"] }, { id: "bar", x: 36, y: 3, kind: "emote", title: "Bar", emote: "🥂" });
+  m.spawn = { x: 20, y: 18 };
   return m;
 }
 

@@ -1,4 +1,4 @@
-import { AvatarConfig, SKIN_TONES, HAIR_STYLES, HAIR_COLORS, SHIRT_COLORS, PANTS_COLORS, ACCESSORIES, normalizeAvatar } from "../../shared/avatar";
+import { AvatarConfig, SKIN_TONES, HAIR_STYLES, HAIR_COLORS, SHIRT_COLORS, PANTS_COLORS, ACCESSORIES, PETS, normalizeAvatar } from "../../shared/avatar";
 import { drawAvatarPreview } from "../textures/avatars";
 import { el } from "./common";
 
@@ -42,10 +42,15 @@ export function avatarEditor(root: HTMLElement, initial: AvatarConfig, onChange:
       swatchRow("Camisa", SHIRT_COLORS, () => cfg.shirt, (_i, c) => (cfg.shirt = c)),
       swatchRow("Calça", PANTS_COLORS, () => cfg.pants, (i) => (cfg.pants = i)),
       chipRow("Acessório", ACCESSORIES, () => cfg.accessory, (i) => (cfg.accessory = i)),
+      chipRow("Pet", PETS, () => cfg.pet, (i) => (cfg.pet = i)),
     );
-    drawAvatarPreview(canvas, cfg, 3);
+    const custom = el(`<label class="row" style="margin:0;font-size:12px">Cor livre da camisa <input type="color" value="${cfg.shirt}" style="padding:0;width:36px;height:24px" /></label>`);
+    custom.querySelector("input")!.addEventListener("input", (e) => { cfg.shirt = (e.target as HTMLInputElement).value; drawPreview(); onChange({ ...cfg }); });
+    opts.appendChild(custom);
+    drawPreview();
     onChange({ ...cfg });
   };
+  const drawPreview = () => drawAvatarPreview(canvas, cfg, 3);
   render();
   return { get: () => ({ ...cfg }) };
 }

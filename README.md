@@ -66,7 +66,18 @@ joystick mobile.
 | Relógio e clima | ✅ hora local do espaço, clima real por cidade (Open-Meteo, sem chave) com chuva, neve, neblina, nuvens e tempestade; ciclo dia/noite pelo nascer e pôr do sol; dono pode fixar clima e hora |
 | Visual | ✅ paredes com face e topo, objetos altos com profundidade, tiles animados (água, fonte, telas), iluminação com luminárias e janelas, sombras, contorno nos avatares, ciclo de caminhada em 4 quadros, partículas, transições entre salas, sons sintetizados |
 | Onboarding | ✅ tour de 4 passos na primeira visita, dicas nos botões |
-| Vídeo / áudio | ❌ de propósito |
+| Agenda | ✅ reuniões com sala reservada (detecta conflito), lembrete 5 min antes com "ir para a sala" |
+| Mural e busca | ✅ avisos fixados com @menções, notificação ao vivo, busca no histórico |
+| Presença rica | ✅ em reunião, almoço (1 h), foco (50 min) com volta automática, texto livre; não perturbe e foco silenciam chamadas |
+| Mini-jogos e lousa | ✅ jogo da velha a dois, lousa de desenho em tempo real, rádio por YouTube |
+| Reações | ✅ confete, corações, fogo, palmas e balões no mapa, para todos |
+| Pets | ✅ gato, cachorro, pato, robô ou slime seguindo o avatar; cor livre de camisa |
+| Uploads | ✅ imagens para objetos e logo do espaço (png, jpg, gif, webp até 4 MB) |
+| Templates | ✅ escritório + jardim, coworking, sala de aula, evento/auditório, jardim, vazio |
+| Estatísticas | ✅ pessoas por dia e semana, minutos, mensagens, horários de pico, salas mais usadas, log de moderação |
+| Áudio e vídeo por proximidade | ✅ via LiveKit, ligado por variáveis de ambiente (ver abaixo); grupos por proximidade, zona e palco calculados no servidor |
+| Login com Google | ✅ ligado por `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET` |
+| Multi-instância | ✅ `REDIS_URL` ativa presença e matchmaking compartilhados do Colyseus |
 
 Sem internet o clima cai num modo simulado (indicado no relógio). Em automação (Playwright) os efeitos pesados ficam desligados, a não ser com `?fx=1`.
 
@@ -89,6 +100,17 @@ tests/          unit/ (node:test) e e2e/ (Playwright)
 - **Persistência:** `users`, `spaces`, `maps` (JSON do mapa), `memberships`,
   `invites`, `bans`, `messages`, `object_state` (notas, enquetes, timers).
 - **Auth no WebSocket:** `OfficeRoom.onAuth` valida o token e resolve o papel.
+
+## Áudio e vídeo (LiveKit)
+
+Crie um projeto no [LiveKit Cloud](https://cloud.livekit.io) (ou suba o servidor
+open source) e defina `LIVEKIT_URL`, `LIVEKIT_API_KEY` e `LIVEKIT_API_SECRET`.
+O servidor calcula o grupo de conversa de cada pessoa (zona, palco ou cluster de
+proximidade) e o cliente entra e sai da sala LiveKit correspondente sozinho, com
+microfone, câmera e compartilhamento de tela na barra inferior direita. Sem as
+variáveis, a barra aparece desativada. Essa integração não foi exercitada com um
+servidor LiveKit real nesta máquina; o que está coberto por teste é a derivação
+dos grupos, a emissão de tokens e o estado "não configurado".
 
 ## Deploy (AWS)
 

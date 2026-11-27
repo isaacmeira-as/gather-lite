@@ -6,7 +6,8 @@ import { MapData, Interactable, Zone, Portal, canHear, findPath, interactableNea
 import { drawTileset, V, TILESET_COLS, TILESET_ROWS } from "../textures/tiles";
 import { drawAvatarSheet, AV_W, AV_H, AV_FRAMES_PER_DIR } from "../textures/avatars";
 import { normalizeAvatar, avatarKey } from "../../shared/avatar";
-import { ensureFxTextures, Lighting, Weather, WeatherView, darknessFor, poof, dust } from "./fx";
+import { ensureFxTextures, Lighting, Weather, WeatherView, darknessFor, poof, dust, reactionFx } from "./fx";
+import { drawPetSheet, PET_W, PET_H } from "../textures/pets";
 import { sfx } from "../ui/notify";
 
 const STEP_MS = 130;
@@ -15,6 +16,8 @@ const BUBBLE_MS = 5000;
 export const LOW_FX = typeof navigator !== "undefined" && (navigator as any).webdriver && !new URLSearchParams(location.search).has("fx");
 const STATUS_COLORS: Record<string, number> = { available: 0x22c55e, busy: 0xf59e0b, dnd: 0xef4444 };
 const FONT = "ui-sans-serif, system-ui, sans-serif";
+const VARIANTS: Record<number, number[]> = { [F.GRASS]: [F.GRASS, F.GRASS, V.GRASS_B, V.GRASS_C], [F.WOOD]: [F.WOOD, F.WOOD, V.WOOD_B], [F.STONE]: [F.STONE, V.STONE_B], [F.CARPET_BLUE]: [F.CARPET_BLUE, V.CARPET_BLUE_B], [F.PATH]: [F.PATH, V.PATH_B] };
+const hash2 = (x: number, y: number) => ((x * 73856093) ^ (y * 19349663)) >>> 0;
 const ANIMATED: Record<number, number> = { [F.WATER]: V.WATER_B, [O.FOUNTAIN]: V.FOUNTAIN_B, [O.COMPUTER]: V.COMPUTER_B, [O.ARCADE]: V.ARCADE_B, [O.SPOTLIGHT]: V.SPOTLIGHT_B };
 
 export type BuildTool = "tile" | "erase" | "zone" | "interactable" | "portal" | "spawn";
@@ -32,6 +35,8 @@ class PlayerSprite extends Phaser.GameObjects.Container {
   bubbleTimer?: Phaser.Time.TimerEvent;
   tween?: Phaser.Tweens.Tween;
   breathe?: Phaser.Tweens.Tween;
+  pet: Phaser.GameObjects.Image | null = null;
+  petFrame = 0;
   texKey: string;
   view: PlayerView;
   tileX: number;
@@ -61,7 +66,30 @@ class PlayerSprite extends Phaser.GameObjects.Container {
     scene.add.existing(this);
     this.setDepth(this.y);
     this.startBreathing();
+    this.setupPet();
   }
+
+  setupPet() {
+    let cfg: any = {}; try { cfg = JSON.parse(this.view.avatar); } catch {}
+    const pet = Number(cfg.pet) || 0;
+    this.pet?.destroy(); this.pet = null;
+    if (!pet) return;
+    const scene = this.scene as OfficeScene;
+    const key = `pet-${pet}`;
+    if (!scene.textures.exists(key)) { const tex = scene.textures.addCanvas(key, drawPetSheet(document.createElement("canvas"), pet))!; tex.add("0", 0, 0, 0, PET_W, PET_H); tex.add("1", 0, PET_W, 0, PET_W, PET_H); }
+    this.pet = scene.add.image(this.x - 14, this.y + 6, key, "0").setDepth(this.y - 1);
+  }
+
+  updatePet() {
+    if (!this.pet) return;
+    const tx = this.prevTileX * TILE + TILE / 2 + (this.prevTileX === this.tileX && this.prevTileY === this.tileY ? -14 : 0);
+    const ty = this.prevTileY * TILE + TILE / 2 + 6;
+    const dx = tx - this.pet.x, dy = ty - this.pet.y;
+    if (Math.abs(dx) + Math.abs(dy) > 1) { this.pet.x += dx * 0.15; this.pet.y += dy * 0.15; this.pet.setFlipX(dx < 0); if (Math.floor(this.scene.time.now / 160) % 2 !== this.petFrame) { this.petFrame ^= 1; this.pet.setFrame(String(this.petFrame)); } }
+    this.pet.setDepth(this.pet.y + 4);
+  }
+
+  destroy(fromScene?: boolean) { this.pet?.destroy(); super.destroy(fromScene); }
 
   startBreathing() {
     this.breathe?.stop();
@@ -78,7 +106,7 @@ class PlayerSprite extends Phaser.GameObjects.Container {
     this.roleText.setText(badge).setPosition(w / 2 + 5, -32);
   }
 
-  setTexture(key: string) { this.texKey = key; this.sprite.setTexture(key, `${this.view.dir}-0`); }
+  setTexture(key: string) { this.texKey = key; this.sprite.setTexture(key, `${this.view.dir}-0`); this.setupPet(); }
 
   setFacing(dir: number) {
     if (!this.sprite?.anims) return;
@@ -270,6 +298,7 @@ export class OfficeScene extends Phaser.Scene {
     bus.on("ui:zoom", (delta: number) => this.setZoom(this.cameras.main.zoom + delta));
     bus.on("joystick", (dir: number) => { this.virtualDir = dir; });
     bus.on("zone", (z: { id: string }) => { if (z.id) this.cameras.main.flash(180, 255, 255, 255, true); });
+    bus.on("reaction", (m: { id: string; x: number; y: number }) => reactionFx(this, m.id, m.x * TILE + TILE / 2, m.y * TILE + TILE / 2));
     bus.on("map:leaving", () => this.cameras.main.fadeOut(220, 11, 18, 32));
   }
 
@@ -280,7 +309,8 @@ export class OfficeScene extends Phaser.Scene {
   renderTile(x: number, y: number) {
     const i = idx(this.mapData, x, y);
     const f = this.mapData.floor[i], o = this.mapData.objects[i];
-    this.floorLayer.putTileAt(f, x, y);
+    const variants = VARIANTS[f];
+    this.floorLayer.putTileAt(variants ? variants[hash2(x, y) % variants.length] : f, x, y);
     this.animTiles = this.animTiles.filter((t) => !(t.x === x && t.y === y));
     if (ANIMATED[f] && f === F.WATER) this.animTiles.push({ x, y, layer: "floor", a: f, b: ANIMATED[f] });
     const old = this.tall.get(i);
@@ -296,11 +326,24 @@ export class OfficeScene extends Phaser.Scene {
     if (TALL_OBJECTS.has(o) || visual === V.WALL_FACE) {
       const img = this.add.image(x * TILE, y * TILE, "tiles", String(visual)).setOrigin(0).setDepth(y * TILE + TILE - 1);
       this.tall.set(i, img);
+      if (visual === V.WALL_FACE || o === O.WINDOW || o === O.BOOKSHELF || o === O.LOCKER || o === O.FRIDGE || o === O.VENDING) this.wallShadow(x, y);
     } else {
       this.objectLayer.putTileAt(visual, x, y);
       if (ANIMATED[o]) this.animTiles.push({ x, y, layer: "objects", a: o, b: ANIMATED[o] });
     }
     // Wall above a face needs re-evaluation when the tile below changes.
+  }
+
+  shadowGfx: Phaser.GameObjects.Graphics | null = null;
+  shadowCells = new Set<number>();
+  /** Soft ambient-occlusion strip under wall faces and tall furniture. */
+  wallShadow(x: number, y: number) {
+    this.shadowGfx ??= this.add.graphics().setDepth(0.45);
+    const i = idx(this.mapData, x, y);
+    if (this.shadowCells.has(i)) return;
+    this.shadowCells.add(i);
+    this.shadowGfx.fillGradientStyle(0x000000, 0x000000, 0x000000, 0x000000, 0.28, 0.28, 0, 0);
+    this.shadowGfx.fillRect(x * TILE, (y + 1) * TILE, TILE, 9);
   }
 
   tickAnimatedTiles() {
@@ -655,6 +698,7 @@ export class OfficeScene extends Phaser.Scene {
         if (path && path.length <= 1) { this.locateTarget = null; this.locateGfx.clear(); bus.emit("ui:locate-done"); }
       }
     }
+    for (const ps of this.players.values()) ps.updatePet();
     if (time - this.hearingTick > 150) { this.hearingTick = time; this.updateHearing(); }
     if (!LOW_FX && time - this.lightTick > 120) {
       this.lightTick = time;

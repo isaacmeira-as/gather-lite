@@ -4,7 +4,7 @@ import { getToken } from "./api";
 
 export interface PlayerView {
   id: string; userId: string; name: string; color: string; avatar: string; role: string; x: number; y: number; dir: number;
-  status: string; emote: string; zone: string; sitting: boolean; ghost: boolean; connected: boolean; joinedAt: number;
+  status: string; statusText: string; mediaGroup: string; emote: string; zone: string; sitting: boolean; ghost: boolean; connected: boolean; joinedAt: number;
 }
 export interface ZoneView { id: string; name: string; x: number; y: number; w: number; h: number; color: string }
 export interface InteractableView { id: string; x: number; y: number; kind: string; title: string; url: string; text: string; emote: string; options: string }
@@ -18,7 +18,7 @@ export interface OfficeStateView {
   notes: Map<string, string>;
   objectState: Map<string, string>;
 }
-export interface WelcomeInfo { id: string; userId: string; role: string; spaceId: string; mapId: string; maps: { id: string; name: string; is_default: number }[] }
+export interface WelcomeInfo { id: string; userId: string; role: string; spaceId: string; mapId: string; maps: { id: string; name: string; is_default: number }[]; media: boolean }
 
 function endpoint() {
   const fromEnv = (import.meta as any).env?.VITE_SERVER as string | undefined;
@@ -58,6 +58,11 @@ export class Net {
     room.onMessage("summon", (m) => bus.emit("summon", m));
     room.onMessage("wave", (m) => bus.emit("wave", m));
     room.onMessage("kicked", (m) => bus.emit("kicked", m));
+    room.onMessage("reaction", (m) => bus.emit("reaction", m));
+    room.onMessage("refresh", (m) => bus.emit("refresh", m));
+    room.onMessage("event:reminder", (m) => bus.emit("event:reminder", m));
+    room.onMessage("draw:stroke", (m) => bus.emit("draw:stroke", m));
+    room.onMessage("draw:clear", (m) => bus.emit("draw:clear", m));
     room.onMessage("pong", (t: number) => { this.latency = Date.now() - t; bus.emit("latency", this.latency); });
     room.onLeave((code) => { if (this.pingTimer) clearInterval(this.pingTimer); if (!this.switching) bus.emit("disconnected", code); });
     room.onDrop(() => bus.emit("toast", "Conexão caiu, tentando reconectar…"));
@@ -95,7 +100,8 @@ export class Net {
   move(dir: number) { this.send("move", { dir }); }
   face(dir: number) { this.send("face", { dir }); }
   chat(text: string, scope: "nearby" | "everyone" | "dm" = "nearby", to?: string) { this.send("chat", { text, scope, to }); }
-  setStatus(status: string) { this.send("status", { status }); }
+  setStatus(status: string, text?: string) { this.send("status", { status, text }); }
+  reaction(id: string) { this.send("reaction", { id }); }
   emote(emote: string) { this.send("emote", { emote }); }
   interact(id: string) { this.send("interact", { id }); }
   note(id: string, text: string) { this.send("note", { id, text }); }

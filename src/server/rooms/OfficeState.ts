@@ -11,6 +11,8 @@ export class Player extends Schema {
   @type("number") y = 0;
   @type("number") dir = 0;
   @type("string") status = "available";
+  @type("string") statusText = "";
+  @type("string") mediaGroup = "";
   @type("string") emote = "";
   @type("string") zone = "";
   @type("boolean") sitting = false;

@@ -14,6 +14,11 @@ import { initJoystick } from "./joystick";
 import { avatarEditor } from "./avatar";
 import { setMuted, isMuted, sfx } from "./notify";
 import { startCoach } from "./coach";
+import { initAgenda } from "./agenda";
+import { initMural } from "./mural";
+import { initStats } from "./stats";
+import { initMedia } from "./media";
+import { REACTIONS, STATUS_META } from "../../shared/messages";
 import type { WeatherView } from "../scenes/fx";
 import { auth } from "../api";
 import type { SpaceInfo } from "../api";
@@ -27,13 +32,29 @@ export function initUI(space: SpaceInfo) {
 
   // ---- top bar
   $("#space-name").textContent = space.name;
+  if (space.logoUrl) { const img = document.createElement("img"); img.id = "space-logo"; img.src = space.logoUrl; img.alt = ""; $("#space-name").prepend(img); }
   renderMapSelect(space.maps);
   bus.on("maps:changed", renderMapSelect);
   bus.on("map:switched", () => { renderMapSelect(net.welcome.maps); $("#zone-indicator").textContent = "Área comum"; });
   $<HTMLSelectElement>("#map-select").addEventListener("change", (e) => { const id = (e.target as HTMLSelectElement).value; if (id && id !== net.state.mapId) net.switchMap(id); });
   $("#me-button").textContent = net.me?.name ?? "";
   $("#me-button").addEventListener("click", () => bus.emit("ui:profile"));
-  $<HTMLSelectElement>("#status-select").addEventListener("change", (e) => net.setStatus((e.target as HTMLSelectElement).value));
+  let statusTimer: any = null;
+  const statusSel = $<HTMLSelectElement>("#status-select");
+  statusSel.addEventListener("change", (e) => {
+    const v = (e.target as HTMLSelectElement).value;
+    clearTimeout(statusTimer);
+    if (v === "__custom") {
+      const text = prompt("Status (texto livre, até 60 caracteres):", net.me?.statusText ?? "") ?? "";
+      net.setStatus(net.me?.status === "__custom" ? "available" : net.me?.status ?? "available", text);
+      auth.update({ statusText: text }).catch(() => {});
+      statusSel.value = net.me?.status && net.me.status !== "__custom" ? net.me.status : "available";
+      return;
+    }
+    net.setStatus(v);
+    const auto = STATUS_META[v]?.autoMinutes;
+    if (auto) { toast(`${STATUS_META[v].icon} ${STATUS_META[v].label}: volta para disponível em ${auto} min`); statusTimer = setTimeout(() => { net.setStatus("available"); statusSel.value = "available"; toast("Status voltou para disponível"); }, auto * 60000); }
+  });
   bus.on("latency", (ms: number) => { $("#latency").textContent = `${ms} ms`; });
   const WX_ICON: Record<string, string> = { clear: "☀️", cloudy: "⛅", fog: "🌫️", rain: "🌧️", storm: "⛈️", snow: "❄️" };
   let lastWeather: WeatherView | null = null;
@@ -65,6 +86,10 @@ export function initUI(space: SpaceInfo) {
   bus.on("system", (m: { text: string }) => { if (/entrou em/.test(m.text)) sfx("join"); });
   bus.on("ghost", (g: boolean) => { $('#toolbar button[data-action="ghost"]').classList.toggle("active", g); toast(g ? "👻 Modo fantasma: você atravessa pessoas" : "Modo fantasma desligado", 1500); });
   if (!net.canBuild) $('#toolbar button[data-action="build"]').hidden = true; else $('#toolbar button[data-action="build"]').hidden = false;
+  $('#toolbar button[data-action="stats"]').hidden = !net.canBuild;
+  const rbar = $("#reaction-bar");
+  for (const r of REACTIONS) { const b = document.createElement("button"); b.textContent = r.icon; b.title = r.label; b.addEventListener("click", () => { net.reaction(r.id); rbar.hidden = true; }); rbar.appendChild(b); }
+  bus.on("reaction", (m: { id: string; name: string }) => { if (m.name !== net.me?.name) toast(`${REACTIONS.find((r) => r.id === m.id)?.icon ?? ""} ${m.name}`, 1500); });
 
   // ---- toolbar
   document.querySelectorAll<HTMLButtonElement>("#toolbar button").forEach((b) => b.addEventListener("click", () => {
@@ -74,6 +99,10 @@ export function initUI(space: SpaceInfo) {
     if (a === "chat") togglePanel("chat");
     if (a === "participants") togglePanel("participants");
     if (a === "members") bus.emit("ui:toggle-members");
+    if (a === "agenda") bus.emit("ui:toggle-agenda");
+    if (a === "mural") bus.emit("ui:toggle-mural");
+    if (a === "stats") bus.emit("ui:toggle-stats");
+    if (a === "reactions") { $("#reaction-bar").hidden = !$("#reaction-bar").hidden; }
     if (a === "build") toggleBuild();
     if (a === "emotes") toggleEmotes();
     if (a === "minimap") toggleMinimap();
@@ -90,7 +119,7 @@ export function initUI(space: SpaceInfo) {
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     if (!$("#modal").hidden) { closeModal(); e.stopPropagation(); }
-    $("#help").hidden = true; $("#player-card").hidden = true; $("#emote-bar").hidden = true;
+    $("#help").hidden = true; $("#player-card").hidden = true; $("#emote-bar").hidden = true; $("#reaction-bar").hidden = true;
   }, true);
   bus.on("toast", (t: string) => toast(t));
   bus.on("ui:profile", openProfile);
@@ -110,6 +139,10 @@ export function initUI(space: SpaceInfo) {
   initObjects();
   initBuild(space.slug);
   initMembers(space.slug);
+  initAgenda(space.slug);
+  initMural(space.slug);
+  initStats(space.slug);
+  initMedia(space.slug);
   initJoystick();
   startMinimap();
 

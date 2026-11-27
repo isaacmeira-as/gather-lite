@@ -157,3 +157,19 @@ export function dust(scene: Phaser.Scene, x: number, y: number) {
   e.explode(3);
   scene.time.delayedCall(400, () => e.destroy());
 }
+
+/** Reaction effects broadcast by the server (confetti, hearts, fire, clap, balloons). */
+export function reactionFx(scene: Phaser.Scene, id: string, x: number, y: number) {
+  if (id === "confetti") {
+    const e = scene.add.particles(x, y - 20, "fx-dot", { speed: { min: 80, max: 220 }, angle: { min: 200, max: 340 }, gravityY: 300, lifespan: 1400, quantity: 40, scale: { start: 0.7, end: 0.2 }, rotate: { min: 0, max: 360 }, tint: [0xef4444, 0xf59e0b, 0x22c55e, 0x3b82f6, 0xa855f7, 0xec4899], emitting: false }).setDepth(9500);
+    e.explode(40);
+    scene.time.delayedCall(1600, () => e.destroy());
+    return;
+  }
+  const glyph: Record<string, string> = { hearts: "💖", fire: "🔥", clap: "👏", balloons: "🎈" };
+  const g = glyph[id] ?? "✨";
+  for (let i = 0; i < 8; i++) {
+    const t = scene.add.text(x + (Math.random() - 0.5) * 40, y, g, { fontSize: `${12 + Math.random() * 10}px`, resolution: 2 }).setOrigin(0.5).setDepth(9500).setAlpha(0);
+    scene.tweens.add({ targets: t, y: y - 60 - Math.random() * 50, x: t.x + (Math.random() - 0.5) * 30, alpha: { from: 1, to: 0 }, duration: 1200 + Math.random() * 600, delay: i * 70, ease: "Sine.Out", onComplete: () => t.destroy() });
+  }
+}

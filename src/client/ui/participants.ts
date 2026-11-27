@@ -1,6 +1,8 @@
 import { net } from "../net";
 import { bus } from "../bus";
-import { $, esc, toast, ROLE_LABEL, STATUS_LABEL } from "./common";
+import { $, esc, toast, ROLE_LABEL } from "./common";
+import { STATUS_META } from "../../shared/messages";
+const STATUS_LABEL: Record<string, string> = Object.fromEntries(Object.entries(STATUS_META).map(([k, v]) => [k, `${v.icon} ${v.label}`]));
 import { setDm, togglePanel } from "./chat";
 import { beep } from "./notify";
 import type { OfficeScene } from "../scenes/OfficeScene";
@@ -30,6 +32,7 @@ export function initParticipants(getScene: () => OfficeScene | null) {
   $("#follow-stop").addEventListener("click", (e) => { e.preventDefault(); bus.emit("ui:follow", null); });
   bus.on("wave", (m: { from: string; name: string }) => { beep("wave"); toast(`👋 ${m.name} acenou para você`, 3000, { label: "Acenar de volta", onClick: () => net.send("wave", { to: m.from }) }); });
   bus.on("summon", (m: { from: string; name: string; x: number; y: number; mapId: string }) => {
+    if (net.me?.status === "dnd" || net.me?.status === "focus") return;
     beep("summon");
     toast(`📣 ${m.name} está chamando você`, 8000, { label: "Ir até lá", onClick: async () => {
       if (m.mapId !== net.state.mapId) { await net.switchMap(m.mapId, m.x, m.y); return; }
@@ -53,7 +56,7 @@ export function renderParticipants() {
     return `<li data-id="${p.id}" class="${p.connected ? "" : "away"}" data-avatar="${esc(p.avatar)}">
       <span class="thumb-slot"></span>
       <div style="flex:1"><div>${esc(p.name)} ${p.id === net.sessionId ? '<span class="you">(você)</span>' : ""} <span class="role ${p.role}">${ROLE_LABEL[p.role] ?? p.role}</span> ${near ? "👂" : ""} ${p.ghost ? "👻" : ""}</div>
-      <div class="meta">${STATUS_LABEL[p.status] ?? p.status}${zone ? " · " + esc(zone) : ""}${p.connected ? "" : " · reconectando…"}</div></div>
+      <div class="meta">${STATUS_LABEL[p.status] ?? p.status}${p.statusText ? ` <span class="status-text">“${esc(p.statusText)}”</span>` : ""}${zone ? " · " + esc(zone) : ""}${p.connected ? "" : " · reconectando…"}</div></div>
       ${scene?.locateTarget === p.id ? "📍" : ""}${scene?.followTarget === p.id ? "🚶" : ""}
     </li>`;
   }).join("");
@@ -82,7 +85,8 @@ export function openPlayerCard(id: string) {
   add("🚶 Seguir", () => bus.emit("ui:follow", id));
   add("✉️ Mensagem", () => { setDm(id); togglePanel("chat", true); $<HTMLInputElement>("#chat-input").focus(); });
   add("👋 Acenar", () => net.send("wave", { to: id }));
-  add("📣 Chamar aqui", () => { net.send("summon", { to: id }); toast(`Pedido enviado para ${p.name}`); });
+  if (p.status === "dnd" || p.status === "focus") toast(`${p.name} está em ${STATUS_META[p.status].label.toLowerCase()}: chamadas silenciadas`, 2000);
+  else add("📣 Chamar aqui", () => { net.send("summon", { to: id }); toast(`Pedido enviado para ${p.name}`); });
   const myRole = net.role;
   const canMod = myRole === "owner" || myRole === "moderator";
   const targetProtected = p.role === "owner" || (p.role === "moderator" && myRole !== "owner");

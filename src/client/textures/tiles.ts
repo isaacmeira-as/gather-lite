@@ -3,7 +3,7 @@ import { TILE, F, O } from "../../shared/tiles";
 export const TILESET_COLS = 16;
 export const TILESET_ROWS = 4;
 /** Render-only tile ids (never stored in the map). */
-export const V = { WALL_FACE: 48, WATER_B: 49, FOUNTAIN_B: 50, COMPUTER_B: 51, ARCADE_B: 52, SPOTLIGHT_B: 53, WALL_TOP_END: 54 } as const;
+export const V = { WALL_FACE: 48, WATER_B: 49, FOUNTAIN_B: 50, COMPUTER_B: 51, ARCADE_B: 52, SPOTLIGHT_B: 53, WALL_TOP_END: 54, GRASS_B: 55, GRASS_C: 56, WOOD_B: 57, STONE_B: 58, CARPET_BLUE_B: 59, PATH_B: 60 } as const;
 
 type Ctx = CanvasRenderingContext2D;
 const r = (c: Ctx, x: number, y: number, w: number, h: number, color: string) => { c.fillStyle = color; c.fillRect(x, y, w, h); };
@@ -103,6 +103,12 @@ const objectPainters: Record<number, (c: Ctx) => void> = {
   [V.ARCADE_B]: (c) => { objectPainters[O.ARCADE](c); r(c, 9, 8, 14, 8, "#0891b2"); r(c, 13, 9, 3, 3, "#f472b6"); r(c, 15, 13, 3, 3, "#facc15"); },
   [O.RUG_ROUND]: (c) => { c.fillStyle = "#c2410c"; c.beginPath(); c.ellipse(16, 16, 15, 13, 0, 0, Math.PI * 2); c.fill(); c.fillStyle = "#ea580c"; c.beginPath(); c.ellipse(16, 16, 11, 9, 0, 0, Math.PI * 2); c.fill(); c.fillStyle = "#fdba74"; c.beginPath(); c.ellipse(16, 16, 5, 4, 0, 0, Math.PI * 2); c.fill(); },
 };
+objectPainters[V.GRASS_B] = (c) => { floorPainters[F.GRASS](c); r(c, 6, 20, 2, 2, "#f472b6"); r(c, 22, 8, 2, 2, "#facc15"); r(c, 14, 26, 1, 3, "#3f8f33"); };
+objectPainters[V.GRASS_C] = (c) => { r(c, 0, 0, 32, 32, "#65b556"); const n = noise(19); for (let i = 0; i < 26; i++) { const x = Math.floor(n() * 30), y = Math.floor(n() * 30); r(c, x, y, 1, 3, n() > 0.5 ? "#55a047" : "#79c868"); } r(c, 10, 12, 3, 2, "#4f9a43"); r(c, 20, 22, 3, 2, "#4f9a43"); };
+objectPainters[V.WOOD_B] = (c) => { planks(c, "#c4956a", "#9d6f3b", "#d6ab7e", 1); r(c, 9, 12, 6, 1, "#b0804e"); r(c, 20, 27, 5, 1, "#b0804e"); };
+objectPainters[V.STONE_B] = (c) => { floorPainters[F.STONE](c); r(c, 20, 6, 6, 1, "#c3c8cf"); r(c, 4, 22, 5, 1, "#c3c8cf"); r(c, 11, 9, 2, 2, "#c9ced4"); };
+objectPainters[V.CARPET_BLUE_B] = (c) => { carpet(c, "#4b6cbf", "#4262b1", "#5a7bcf", 9); };
+objectPainters[V.PATH_B] = (c) => { r(c, 0, 0, 32, 32, "#d6c39a"); const n = noise(23); for (let i = 0; i < 14; i++) r(c, Math.floor(n() * 28), Math.floor(n() * 28), 3, 2, n() > 0.5 ? "#c4b086" : "#e3d2aa"); };
 objectPainters[V.WATER_B] = (c) => { r(c, 0, 0, 32, 32, "#3d86f0"); r(c, 5, 8, 10, 2, "#9cc8fd"); r(c, 16, 16, 9, 2, "#9cc8fd"); r(c, 6, 26, 12, 2, "#67a7f7"); r(c, 24, 4, 6, 1, "#9cc8fd"); };
 
 /** Draws the whole tileset into a canvas. Tile id == tileset index. */

@@ -7,6 +7,9 @@ import { normalizeAvatar } from "../../shared/avatar";
 import { userFromToken, AuthUser } from "../auth";
 import * as S from "../spaces";
 import { getWeather, WeatherInfo, simulated } from "../weather";
+import { conversationGroups } from "../../shared/groups";
+import { REACTIONS } from "../../shared/messages";
+import { mediaEnabled } from "../media";
 
 const STEP_MS = 130;
 const EMOTE_MS = 3000;
@@ -29,6 +32,9 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
   private emoteTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private chatSeq = 0;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private visits = new Map<string, number>();
+  private groupsDirty = true;
+  private lastReminder = new Set<string>();
 
   static async onAuth(token: string, options: JoinOptions): Promise<ClientAuth> {
     const user = userFromToken(token || options?.token);
@@ -66,13 +72,68 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     this.patchRate = 50;
     this.refreshWeather();
     this.clock.setInterval(() => this.refreshWeather(), 5 * 60 * 1000);
+    this.clock.setInterval(() => this.recomputeGroups(), 400);
+    this.clock.setInterval(() => this.checkReminders(), 30 * 1000);
     this.presence.subscribe(`space:${space.id}`, this.onSpaceSettings);
+    this.presence.subscribe(`space:${space.id}`, this.onSpaceEvent);
 
     // --- movement & presence
     this.onMessage("move", (client, msg: { dir: number }) => this.handleMove(client, msg));
     this.onMessage("face", (client, msg: { dir: number }) => { const p = this.player(client); if (p && DIR_DELTA[msg?.dir]) p.dir = msg.dir; });
     this.onMessage("ghost", (client, msg: { ghost: boolean }) => { const p = this.player(client); if (p) p.ghost = !!msg?.ghost; });
-    this.onMessage("status", (client, msg: { status: string }) => { const p = this.player(client); if (p && (STATUSES as readonly string[]).includes(msg?.status)) p.status = msg.status; });
+    this.onMessage("status", (client, msg: { status: string; text?: string }) => {
+      const p = this.player(client);
+      if (!p) return;
+      if ((STATUSES as readonly string[]).includes(msg?.status)) p.status = msg.status;
+      if (typeof msg?.text === "string") p.statusText = msg.text.replace(/[\u0000-\u001f<>]/g, "").slice(0, 60);
+    });
+    this.onMessage("reaction", (client, msg: { id: string }) => {
+      const p = this.player(client);
+      if (!p || !REACTIONS.some((r) => r.id === msg?.id)) return;
+      const now = Date.now();
+      if (now - (this.lastChat.get("rx:" + client.sessionId) ?? 0) < 1500) return;
+      this.lastChat.set("rx:" + client.sessionId, now);
+      this.broadcast("reaction", { id: msg.id, x: p.x, y: p.y, from: p.id, name: p.name });
+    });
+    // --- games (state lives in objectState, persisted)
+    this.onMessage("ttt:move", (client, msg: { id: string; cell: number }) => {
+      const p = this.player(client);
+      const it = this.state.interactables.get(msg?.id);
+      if (!p || !it || it.kind !== "game" || !Number.isInteger(msg.cell) || msg.cell < 0 || msg.cell > 8) return;
+      const key = `ttt:${it.id}`;
+      const g = this.objState(key) ?? { board: Array(9).fill(""), players: {}, turn: "X", winner: "" };
+      if (g.winner) return;
+      if (!g.players.X) { g.players.X = p.userId; g.names = { ...(g.names ?? {}), X: p.name }; }
+      else if (!g.players.O && g.players.X !== p.userId) { g.players.O = p.userId; g.names = { ...(g.names ?? {}), O: p.name }; }
+      const mark = g.players.X === p.userId ? "X" : g.players.O === p.userId ? "O" : "";
+      if (!mark || mark !== g.turn || g.board[msg.cell]) return;
+      g.board[msg.cell] = mark;
+      const L = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+      if (L.some(([a, b, c]) => g.board[a] && g.board[a] === g.board[b] && g.board[a] === g.board[c])) g.winner = mark;
+      else if (g.board.every((c: string) => c)) g.winner = "draw";
+      else g.turn = mark === "X" ? "O" : "X";
+      this.setObjState(key, g);
+    });
+    this.onMessage("ttt:reset", (client, msg: { id: string }) => {
+      const it = this.state.interactables.get(msg?.id);
+      if (it?.kind === "game") this.setObjState(`ttt:${it.id}`, { board: Array(9).fill(""), players: {}, turn: "X", winner: "" });
+    });
+    this.onMessage("draw:stroke", (client, msg: { id: string; points: number[]; color: string; size: number }) => {
+      const p = this.player(client);
+      const it = this.state.interactables.get(msg?.id);
+      if (!p || !it || it.kind !== "draw" || !Array.isArray(msg.points) || msg.points.length < 2 || msg.points.length > 400) return;
+      const stroke = { points: msg.points.map((v) => Math.max(0, Math.min(1000, Number(v) | 0))), color: /^#[0-9a-fA-F]{6}$/.test(msg.color) ? msg.color : "#111827", size: Math.max(1, Math.min(24, Number(msg.size) || 3)) };
+      const key = `draw:${it.id}`;
+      const d = this.objState(key) ?? { strokes: [] };
+      d.strokes.push(stroke);
+      if (d.strokes.length > 600) d.strokes.shift();
+      this.setObjState(key, d);
+      this.broadcast("draw:stroke", { id: it.id, stroke }, { except: client });
+    });
+    this.onMessage("draw:clear", (client, msg: { id: string }) => {
+      const it = this.state.interactables.get(msg?.id);
+      if (it?.kind === "draw") { this.setObjState(`draw:${it.id}`, { strokes: [] }); this.broadcast("draw:clear", { id: it.id }); }
+    });
     this.onMessage("emote", (client, msg: { emote: string }) => { const p = this.player(client); if (p && EMOTES.includes(msg?.emote)) this.setEmote(p, msg.emote); });
     this.onMessage("teleport", (client, msg: { x: number; y: number }) => {
       const p = this.player(client);
@@ -238,6 +299,7 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       const targetRole = this.auth(target).role;
       if (targetRole === "owner" || (targetRole === "moderator" && actor.role !== "owner")) return;
       if (msg.ban) S.ban(this.space.id, tp.userId, String(msg.reason ?? "").slice(0, 200));
+      S.logMod(this.space.id, { id: actor.user.id, name: actor.user.name }, msg.ban ? "ban" : "kick", { id: tp.userId, name: tp.name }, String(msg.reason ?? ""));
       target.send("kicked", { ban: !!msg.ban, reason: msg.reason ?? "" });
       this.broadcast("system", { text: `${tp.name} foi ${msg.ban ? "banido" : "removido"} por ${actor.user.name}`, ts: Date.now() }, { except: target });
       setTimeout(() => target.leave(4000), 150);
@@ -250,6 +312,7 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       const tp = target && this.player(target);
       if (!target || !tp || tp.userId === this.space.owner_id) return;
       S.setRole(this.space.id, tp.userId, msg.role);
+      S.logMod(this.space.id, { id: actor.user.id, name: actor.user.name }, "role:" + msg.role, { id: tp.userId, name: tp.name });
       (target.auth as ClientAuth).role = msg.role;
       tp.role = msg.role;
       target.send("system", { text: `Seu papel agora é: ${msg.role}`, ts: Date.now() });
@@ -279,10 +342,13 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     p.x = spawn.x;
     p.y = spawn.y;
     p.joinedAt = Date.now();
+    p.statusText = (user as any).statusText ?? "";
     this.state.players.set(client.sessionId, p);
     this.afterMove(client, p, true);
+    this.visits.set(client.sessionId, S.recordVisit(this.space.id, this.mapRow.id, user.id));
+    this.groupsDirty = true;
     this.broadcast("system", { text: `${p.name} entrou em ${this.state.mapName}`, ts: Date.now() }, { except: client });
-    client.send("welcome", { id: client.sessionId, userId: user.id, role, spaceId: this.space.id, mapId: this.mapRow.id, maps: S.listMaps(this.space.id) });
+    client.send("welcome", { id: client.sessionId, userId: user.id, role, spaceId: this.space.id, mapId: this.mapRow.id, maps: S.listMaps(this.space.id), media: mediaEnabled() });
   }
 
   async onLeave(client: Client, code?: number) {
@@ -295,7 +361,33 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
     this.removePlayer(client.sessionId);
   }
 
-  onDispose() { this.flushSave(); this.presence.unsubscribe(`space:${this.space.id}`, this.onSpaceSettings); }
+  onDispose() {
+    this.flushSave();
+    this.presence.unsubscribe(`space:${this.space.id}`, this.onSpaceSettings);
+    this.presence.unsubscribe(`space:${this.space.id}`, this.onSpaceEvent);
+    for (const v of this.visits.values()) S.endVisit(v);
+  }
+
+  private onSpaceEvent = (what: string) => { if (what === "events" || what === "pins") this.broadcast("refresh", { what }); };
+
+  /** Audio/video conversation groups, pushed into each player's state so clients can join the right LiveKit room. */
+  private recomputeGroups() {
+    if (!this.groupsDirty) return;
+    this.groupsDirty = false;
+    const players = [...this.state.players.values()].filter((p) => p.connected).map((p) => ({ id: p.id, x: p.x, y: p.y }));
+    const groups = conversationGroups(this.map, this.state.mapId, players);
+    for (const p of this.state.players.values()) { const g = groups[p.id] ?? ""; if (p.mediaGroup !== g) p.mediaGroup = g; }
+  }
+
+  private checkReminders() {
+    const soon = Date.now() + 5 * 60 * 1000;
+    for (const ev of S.listEvents(this.space.id, Date.now(), 20)) {
+      if (ev.starts_at <= soon && ev.starts_at > Date.now() && !this.lastReminder.has(ev.id)) {
+        this.lastReminder.add(ev.id);
+        this.broadcast("event:reminder", { id: ev.id, title: ev.title, startsAt: ev.starts_at, mapId: ev.map_id, zoneId: ev.zone_id });
+      }
+    }
+  }
 
   // Arrow function so the same reference can be unsubscribed without dropping other rooms' listeners.
   private onSpaceSettings = () => {
@@ -373,6 +465,7 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
   }
 
   private afterMove(client: Client, p: Player, silent = false) {
+    this.groupsDirty = true;
     const z = zoneAt(this.map, p.x, p.y);
     const zoneId = z?.id ?? "";
     if (p.zone !== zoneId) {
@@ -459,6 +552,8 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
   private removePlayer(sessionId: string, silent = false) {
     const p = this.state.players.get(sessionId);
     if (!p) return;
+    const v = this.visits.get(sessionId); if (v) { S.endVisit(v); this.visits.delete(sessionId); }
+    this.groupsDirty = true;
     this.state.players.delete(sessionId);
     this.lastStep.delete(sessionId);
     const t = this.emoteTimers.get(sessionId);

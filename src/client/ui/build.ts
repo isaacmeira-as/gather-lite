@@ -136,7 +136,7 @@ function interactableForm(x: number, y: number, existing?: any) {
   const f = el(`<form class="form"><b>${existing ? "Editar objeto" : "Novo objeto"} <span class="muted small">em ${x},${y}</span></b>
     <label>Tipo <select name="kind">${INTERACTABLE_KINDS.map((k) => `<option value="${k.kind}" ${existing?.kind === k.kind ? "selected" : ""}>${k.label}</option>`).join("")}</select></label>
     <label>Título <input name="title" required maxlength="60" value="${esc(existing?.title ?? "")}" /></label>
-    <label data-f="url">URL <input name="url" maxlength="500" value="${esc(existing?.url ?? "")}" placeholder="https://…" /></label>
+    <label data-f="url">URL <input name="url" maxlength="500" value="${esc(existing?.url ?? "")}" placeholder="https://…" /><span class="upload-row"><input type="file" accept="image/*" hidden /><button type="button" class="sm" data-a="upload">⬆ Enviar imagem</button><span class="muted small up-status"></span></span></label>
     <label data-f="text">Texto <textarea name="text" rows="4">${esc(existing?.text ?? "")}</textarea></label>
     <label data-f="options">Opções (uma por linha) <textarea name="options" rows="3">${esc((existing?.options ?? []).join("\n"))}</textarea></label>
     <label data-f="emote">Emote <input name="emote" maxlength="4" value="${esc(existing?.emote ?? "")}" placeholder="☕" /></label>
@@ -144,6 +144,14 @@ function interactableForm(x: number, y: number, existing?: any) {
   const kindSel = f.querySelector('[name="kind"]') as HTMLSelectElement;
   const refresh = () => { const needs = INTERACTABLE_KINDS.find((k) => k.kind === kindSel.value)!.needs as string[]; f.querySelectorAll<HTMLElement>("[data-f]").forEach((l) => (l.hidden = !needs.includes(l.dataset.f!))); };
   kindSel.addEventListener("change", refresh); refresh();
+  const fileIn = f.querySelector('input[type="file"]') as HTMLInputElement;
+  f.querySelector('[data-a="upload"]')!.addEventListener("click", () => fileIn.click());
+  fileIn.addEventListener("change", async () => {
+    const file = fileIn.files?.[0]; if (!file) return;
+    const st = f.querySelector(".up-status")!; st.textContent = "enviando…";
+    try { const up = await spaces.upload(slug, file); (f.querySelector('[name="url"]') as HTMLInputElement).value = up.url; if (kindSel.value !== "image") { kindSel.value = "image"; refresh(); } st.textContent = "ok: " + up.name; }
+    catch (e: any) { st.textContent = e.message; }
+  });
   f.querySelectorAll("input, textarea").forEach((i) => i.addEventListener("keydown", (e) => e.stopPropagation()));
   f.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -203,7 +211,7 @@ function renderMaps(body: HTMLElement) {
   }
   body.appendChild(ul);
   const f = el(`<form class="form"><b>Nova sala</b><div class="row"><input name="name" placeholder="Nome" required maxlength="40" style="flex:1" />
-    <select name="template"><option value="blank">Vazia</option><option value="office">Escritório</option><option value="garden">Jardim</option></select><button class="primary">Criar</button></div></form>`);
+    <select name="template"><option value="blank">Vazia</option><option value="office">Escritório</option><option value="garden">Jardim</option><option value="coworking">Coworking</option><option value="classroom">Sala de aula</option><option value="event">Evento</option></select><button class="primary">Criar</button></div></form>`);
   f.querySelector("input")!.addEventListener("keydown", (e) => e.stopPropagation());
   f.addEventListener("submit", async (e) => { e.preventDefault(); const name = (f.querySelector('[name="name"]') as HTMLInputElement).value.trim(); const template = (f.querySelector('[name="template"]') as HTMLSelectElement).value; const { map } = await spaces.createMap(slug, name, template); await refreshMaps(); toast(`Sala "${map.name}" criada`); });
   body.appendChild(f);

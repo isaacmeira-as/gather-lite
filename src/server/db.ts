@@ -89,11 +89,67 @@ function migrate(db: DatabaseSync) {
       PRIMARY KEY (space_id, key)
     );
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS events (
+      id TEXT PRIMARY KEY,
+      space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+      map_id TEXT,
+      zone_id TEXT,
+      title TEXT NOT NULL,
+      description TEXT,
+      starts_at INTEGER NOT NULL,
+      ends_at INTEGER NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS events_space_start ON events(space_id, starts_at);
+    CREATE TABLE IF NOT EXISTS pins (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+      map_id TEXT,
+      text TEXT NOT NULL,
+      author_id TEXT NOT NULL,
+      author_name TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS mod_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+      actor_id TEXT NOT NULL,
+      actor_name TEXT NOT NULL,
+      action TEXT NOT NULL,
+      target_id TEXT,
+      target_name TEXT,
+      detail TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS uploads (
+      id TEXT PRIMARY KEY,
+      space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      mime TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS visits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+      map_id TEXT,
+      user_id TEXT NOT NULL,
+      joined_at INTEGER NOT NULL,
+      left_at INTEGER
+    );
+  `);
   // Additive migrations (columns added after the first release).
   const cols = new Set((db.prepare("PRAGMA table_info(spaces)").all() as any[]).map((c) => c.name));
   if (!cols.has("location")) db.exec("ALTER TABLE spaces ADD COLUMN location TEXT NOT NULL DEFAULT 'São Paulo'");
   if (!cols.has("weather_mode")) db.exec("ALTER TABLE spaces ADD COLUMN weather_mode TEXT NOT NULL DEFAULT 'auto'");
   if (!cols.has("time_mode")) db.exec("ALTER TABLE spaces ADD COLUMN time_mode TEXT NOT NULL DEFAULT 'auto'");
+  if (!cols.has("logo_url")) db.exec("ALTER TABLE spaces ADD COLUMN logo_url TEXT");
+  const ucols = new Set((db.prepare("PRAGMA table_info(users)").all() as any[]).map((c) => c.name));
+  if (!ucols.has("google_id")) db.exec("ALTER TABLE users ADD COLUMN google_id TEXT");
+  if (!ucols.has("status_text")) db.exec("ALTER TABLE users ADD COLUMN status_text TEXT NOT NULL DEFAULT ''");
 }
 
 export const now = () => Date.now();

@@ -45,6 +45,17 @@ const teleport = async (p: Page, x: number, y: number) => {
 };
 const chatTexts = (p: Page) => p.$$eval("#chat-messages .msg:not(.system)", (els) => els.map((e) => e.textContent ?? ""));
 const unfocus = (p: Page) => p.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+const ensureMap = async (p: Page, name: string) => {
+  const id = await p.evaluate((n) => (window as any).__net.welcome.maps.find((m: any) => m.name === n)?.id, name);
+  if ((await mapName(p)) === name) return;
+  await p.evaluate((id) => (window as any).__net.switchMap(id), id);
+  await waitFor(async () => (await mapName(p)) === name && !!(await p.evaluate(() => (window as any).__scene?.me)), `switched to ${name}`, 15000);
+  await sleep(300);
+};
+const modalOpen = async (p: Page, who: string, sel = "textarea") => {
+  try { await p.waitForSelector(`#modal:not([hidden]) ${sel}`, { timeout: 8000 }); }
+  catch { throw new Error(`${who}: modal did not open. ${JSON.stringify(await p.evaluate(() => ({ hintHidden: (document.querySelector("#interact-hint") as HTMLElement).hidden, nearby: (window as any).__scene.nearbyInteractable?.id, modalHidden: (document.querySelector("#modal") as HTMLElement).hidden, title: document.querySelector("#modal-title")?.textContent, active: document.activeElement?.tagName, me: [(window as any).__net.me.x, (window as any).__net.me.y] })))}`); }
+};
 async function sendChat(p: Page, text: string, scope: "nearby" | "everyone" = "nearby") {
   await p.evaluate(() => (window as any).__bus.emit("ui:focus-chat"));
   await p.selectOption("#chat-scope", scope);
@@ -469,6 +480,128 @@ async function main() {
     await waitFor(async () => (await me(M.page)).x > start.x, "moved with joystick");
     await M.page.screenshot({ path: path.join(SHOTS, "mobile.png") });
     await M.ctx.close();
+  });
+
+
+  // =========================================================== round 3: agenda, mural, games, reactions, uploads, stats, presence, templates
+  await step("agenda: create a meeting in a zone, conflict detection, list in UI, reminder arrives", async () => {
+    const officeId = await a.evaluate(() => (window as any).__net.welcome.maps.find((m: any) => m.name === "Escritório").id);
+    const start = Date.now() + 2 * 60 * 1000;
+    const ev = await api("POST", `/spaces/${slug}/events`, { title: "Daily", mapId: officeId, zoneId: "sala-a", startsAt: start, endsAt: start + 30 * 60000 }, aliceToken);
+    assert(ev.event?.id, "event created: " + JSON.stringify(ev));
+    const conflict = await api("POST", `/spaces/${slug}/events`, { title: "Outra", mapId: officeId, zoneId: "sala-a", startsAt: start + 60000, endsAt: start + 20 * 60000 }, bobReg.token);
+    assert(conflict.status === 409, "overlapping booking rejected");
+    await a.evaluate(() => (window as any).__bus.emit("ui:toggle-agenda"));
+    await a.waitForSelector("#agenda:not([hidden])");
+    await waitFor(async () => (await a.textContent("#agenda-body"))!.includes("Daily"), "event listed");
+    await a.fill('#agenda-body [name="title"]', "Planning");
+    await a.click("#agenda-body form button.primary");
+    await waitFor(async () => (await a.textContent("#agenda-body"))!.includes("Planning"), "event created from the UI form");
+    await waitFor(async () => (await b.textContent("#toasts"))!.includes("Daily"), "reminder toast reaches Bob", 40000);
+    await a.click('[data-close="agenda"]');
+  });
+
+  await step("mural: pins with @mentions, live refresh, and history search", async () => {
+    await api("POST", `/spaces/${slug}/pins`, { text: "Bem-vindos! @Bob confere o backlog" }, aliceToken);
+    await waitFor(async () => (await b.textContent("#toasts"))!.includes("mural"), "Bob notified of new pin");
+    await b.evaluate(() => (window as any).__bus.emit("ui:toggle-mural"));
+    await b.waitForSelector("#mural:not([hidden])");
+    await waitFor(async () => (await b.$$eval("#mural-body .mention.me", (e) => e.length)) === 1, "mention of Bob highlighted");
+    const denied = await api("POST", `/spaces/${slug}/pins`, { text: "x" }, carolReg.token);
+    assert(denied.status === 403, "guests cannot pin");
+    await b.fill('#mural-body [name="q"]', "anúncio");
+    await b.press('#mural-body [name="q"]', "Enter");
+    await waitFor(async () => (await b.textContent("#mural-body ul.results"))!.includes("anúncio geral"), "search finds history");
+    await b.click('[data-close="mural"]');
+  });
+
+  await step("tic-tac-toe and drawing board sync between players", async () => {
+    await ensureMap(a, "Escritório"); await ensureMap(b, "Escritório");
+    await teleport(a, 24, 16); await unfocus(a); await a.keyboard.press("x");
+    await modalOpen(a, "Alice ttt", ".ttt");
+    await a.click(".ttt .cell:nth-child(5)");
+    await teleport(b, 24, 16); await unfocus(b); await b.keyboard.press("x");
+    await modalOpen(b, "Bob ttt", ".ttt");
+    await waitFor(async () => (await b.textContent(".ttt .cell:nth-child(5)")) === "X", "Bob sees X");
+    await b.click(".ttt .cell:nth-child(1)");
+    await waitFor(async () => (await a.textContent(".ttt .cell:nth-child(1)")) === "O", "Alice sees O");
+    await a.click(".ttt .cell:nth-child(2)"); await b.click(".ttt .cell:nth-child(4)"); await a.click(".ttt .cell:nth-child(8)");
+    await waitFor(async () => (await b.textContent(".ttt-status"))!.includes("venceu"), "winner announced");
+    await a.keyboard.press("Escape"); await b.keyboard.press("Escape");
+    await teleport(a, 26, 3); await unfocus(a); await a.keyboard.press("x");
+    await modalOpen(a, "Alice draw", "canvas.draw");
+    await teleport(b, 26, 3); await unfocus(b); await b.keyboard.press("x");
+    await modalOpen(b, "Bob draw", "canvas.draw");
+    await a.evaluate(() => (window as any).__net.send("draw:stroke", { id: "lousa", points: [100, 100, 300, 300, 500, 100], color: "#ff0000", size: 10 }));
+    await waitFor(async () => (await b.evaluate(() => { const c = document.querySelector("canvas.draw") as HTMLCanvasElement; const d = c.getContext("2d")!.getImageData(300, 300, 1, 1).data; return d[0] > 200 && d[1] < 80; })), "Bob sees the red stroke");
+    await a.keyboard.press("Escape"); await b.keyboard.press("Escape");
+  });
+
+  await step("reactions broadcast to everyone and are rate limited", async () => {
+    await a.evaluate(() => { const n = (window as any).__net; n.reaction("confetti"); n.reaction("hearts"); });
+    await waitFor(async () => (await b.textContent("#toasts"))!.includes("🎉"), "Bob sees the reaction");
+    await sleep(300);
+    assert(!(await b.textContent("#toasts"))!.includes("💖"), "second reaction within 1.5s dropped");
+  });
+
+  await step("rich presence: custom status text and DND silences summons", async () => {
+    await send(a, "status", { status: "focus", text: "escrevendo specs" });
+    await waitFor(async () => { const p = (await players(b)).find((p) => p.name.startsWith("Alice")); return p?.status === "focus"; }, "status synced");
+    await b.evaluate(() => (window as any).__bus.emit("ui:toggle-participants"));
+    await waitFor(async () => (await b.textContent("#participants-list"))!.includes("escrevendo specs"), "status text listed");
+    const aliceId = (await me(a)).id;
+    await send(b, "summon", { to: aliceId });
+    await sleep(500);
+    assert(!(await a.textContent("#toasts"))!.includes("chamando"), "focus mode ignores summons");
+    await send(a, "status", { status: "available", text: "" });
+  });
+
+  await step("image upload for objects and space logo (moderator only)", async () => {
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
+    const r = await fetch(`${BASE}/api/spaces/${slug}/uploads?name=logo.png`, { method: "POST", headers: { "content-type": "image/png", authorization: `Bearer ${aliceToken}` }, body: png });
+    const up = await r.json();
+    assert(r.ok && up.url?.startsWith("/uploads/"), "upload ok: " + JSON.stringify(up));
+    const served = await fetch(`${BASE}${up.url}`);
+    assert(served.ok && served.headers.get("content-type")?.includes("image/png"), "upload served");
+    const denied = await fetch(`${BASE}/api/spaces/${slug}/uploads`, { method: "POST", headers: { "content-type": "image/png", authorization: `Bearer ${carolReg.token}` }, body: png });
+    assert(denied.status === 403, "guest cannot upload");
+    const bad = await fetch(`${BASE}/api/spaces/${slug}/uploads`, { method: "POST", headers: { "content-type": "text/plain", authorization: `Bearer ${aliceToken}` }, body: "nope" });
+    assert(bad.status === 400, "non-image rejected");
+    const sp = await api("PATCH", `/spaces/${slug}`, { logoUrl: up.url }, aliceToken);
+    assert(sp.space?.logoUrl === up.url, "logo saved");
+    await send(a, "interactable:set", { x: 11, y: 3, kind: "image", title: "Logo", url: up.url });
+    await waitFor(async () => (await mapData(b)).interactables.some((i: any) => i.title === "Logo"), "image object synced");
+  });
+
+  await step("stats and moderation log for moderators", async () => {
+    const st = await api("GET", `/spaces/${slug}/stats`, undefined, aliceToken);
+    assert(st.stats?.visits24h >= 2 && st.stats.messages > 5, "stats computed: " + JSON.stringify(st.stats));
+    assert(st.modLog.some((l: any) => l.action === "ban"), "ban logged");
+    assert((await api("GET", `/spaces/${slug}/stats`, undefined, carolReg.token)).status === 403, "guest denied");
+    await a.evaluate(() => (window as any).__bus.emit("ui:toggle-stats"));
+    await waitFor(async () => (await a.textContent("#stats-body"))!.includes("pessoas hoje"), "stats panel renders");
+    await a.evaluate(() => (window as any).__bus.emit("ui:toggle-stats"));
+  });
+
+  await step("templates: coworking, classroom and event spaces are created and joinable", async () => {
+    for (const template of ["coworking", "classroom", "event"]) {
+      const sp = await api("POST", "/spaces", { name: `T ${template}`, template }, aliceToken);
+      assert(sp.space?.slug, template + " created");
+      const S2 = await joinSpace(browser, sp.space.slug, bobReg.token);
+      const m = await me(S2.page);
+      assert(Number.isInteger(m.x) && (await S2.page.evaluate(() => (window as any).__scene.mapData.interactables.length)) > 0, template + " joinable with objects");
+      await S2.ctx.close();
+    }
+  });
+
+  await step("media config reports LiveKit as not configured here; token endpoint refuses", async () => {
+    const cfg = await api("GET", "/media/config");
+    assert(cfg.enabled === false, "media disabled without env");
+    const tok = await api("POST", `/spaces/${slug}/media/token`, { group: "zone:x:y" }, aliceToken);
+    assert(tok.status === 503, "token refused when disabled");
+    assert(await a.$eval("#media-bar", (e) => e.classList.contains("disabled")), "media bar shows disabled state");
+    const g = await a.evaluate(() => (window as any).__net.me.mediaGroup);
+    assert(typeof g === "string", "media group present in state");
   });
 
   await step("weather + day/night: settings propagate and effects render without errors", async () => {

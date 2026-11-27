@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>Gather Lite</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="/src/client/style.css" />
 </head>
 <body>
@@ -23,6 +24,11 @@
         <option value="available">🟢 Disponível</option>
         <option value="busy">🟡 Ocupado</option>
         <option value="dnd">🔴 Não perturbe</option>
+        <option value="meeting">📅 Em reunião</option>
+        <option value="lunch">🍽️ Almoço (1h)</option>
+        <option value="focus">🎧 Foco (50 min)</option>
+        <option value="away">⚪ Ausente</option>
+        <option value="__custom">✏️ Texto livre…</option>
       </select>
       <button id="me-button" class="pill" title="Perfil e avatar"></button>
     </div>
@@ -33,6 +39,10 @@
       <button data-action="chat" title="Chat (Enter)">💬</button>
       <button data-action="participants" title="Participantes (P)">👥</button>
       <button data-action="members" title="Membros e convites">🔗</button>
+      <button data-action="agenda" title="Agenda e reuniões">📅</button>
+      <button data-action="mural" title="Mural e busca">📌</button>
+      <button data-action="reactions" title="Reações">🎉</button>
+      <button data-action="stats" title="Estatísticas" hidden>📊</button>
       <button data-action="minimap" title="Minimapa (M)">🗺️</button>
       <button data-action="ghost" title="Modo fantasma (G)">👻</button>
       <button data-action="build" title="Mapmaker (B)" hidden>🔨</button>
@@ -40,6 +50,9 @@
     </div>
 
     <div id="emote-bar" hidden></div>
+    <div id="reaction-bar" hidden></div>
+    <div id="media-bar" hidden><button id="mic" title="Microfone">🎙️</button><button id="cam" title="Câmera">📷</button><button id="screen" title="Compartilhar tela">🖥️</button><span id="media-group" class="muted small">sozinho</span></div>
+    <div id="media-tiles"></div>
     <div id="interact-hint" hidden><kbd>X</kbd> <span></span></div>
     <div id="follow-pill" class="pill" hidden>Seguindo <b></b> <a href="#" id="follow-stop">parar</a></div>
 
@@ -63,6 +76,19 @@
     <aside id="members" class="panel" hidden>
       <header><span>Membros e convites</span><button class="close" data-close="members">×</button></header>
       <div id="members-body" class="scroll pad"></div>
+    </aside>
+
+    <aside id="agenda" class="panel" hidden>
+      <header><span>Agenda</span><button class="close" data-close="agenda">×</button></header>
+      <div id="agenda-body" class="scroll"></div>
+    </aside>
+    <aside id="mural" class="panel" hidden>
+      <header><span>Mural e busca</span><button class="close" data-close="mural">×</button></header>
+      <div id="mural-body" class="scroll"></div>
+    </aside>
+    <aside id="stats" class="panel wide" hidden>
+      <header><span>Estatísticas</span><button class="close" data-close="stats">×</button></header>
+      <div id="stats-body" class="scroll"></div>
     </aside>
 
     <div id="player-card" class="card small-card" hidden>

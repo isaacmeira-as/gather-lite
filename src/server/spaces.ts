@@ -1,5 +1,9 @@
 import { getDb, uid, now } from "./db";
-import { buildDefaultMap, buildBlankMap, buildGardenMap, MapData, normalizeMap } from "../shared/map";
+import { buildDefaultMap, buildBlankMap, buildGardenMap, buildCoworkingMap, buildClassroomMap, buildEventMap, MapData, normalizeMap } from "../shared/map";
+export type Template = "office" | "blank" | "garden" | "coworking" | "classroom" | "event";
+export const TEMPLATES: Template[] = ["office", "blank", "garden", "coworking", "classroom", "event"];
+const TEMPLATE_NAMES: Record<Template, string> = { office: "Escritório", blank: "Sala principal", garden: "Jardim", coworking: "Coworking", classroom: "Sala de aula", event: "Auditório" };
+function buildTemplate(t: Template): MapData { return t === "office" ? buildDefaultMap() : t === "garden" ? buildGardenMap() : t === "coworking" ? buildCoworkingMap() : t === "classroom" ? buildClassroomMap() : t === "event" ? buildEventMap() : buildBlankMap(); }
 
 export type Role = "owner" | "moderator" | "member" | "guest";
 export const ROLE_RANK: Record<Role, number> = { owner: 3, moderator: 2, member: 1, guest: 0 };
@@ -10,11 +14,12 @@ export const can = {
   chat: (r: Role | null) => !!r,
 };
 
-export interface SpaceRow { id: string; slug: string; name: string; owner_id: string; is_private: number; created_at: number; location: string; weather_mode: string; time_mode: string }
+export interface SpaceRow { id: string; slug: string; name: string; owner_id: string; is_private: number; created_at: number; location: string; weather_mode: string; time_mode: string; logo_url: string | null }
 export const WEATHER_MODES = ["auto", "clear", "cloudy", "fog", "rain", "storm", "snow"];
 export const TIME_MODES = ["auto", "day", "night"];
-export function updateSpaceSettings(spaceId: string, patch: { name?: string; isPrivate?: boolean; location?: string; weatherMode?: string; timeMode?: string }) {
+export function updateSpaceSettings(spaceId: string, patch: { name?: string; isPrivate?: boolean; location?: string; weatherMode?: string; timeMode?: string; logoUrl?: string | null }) {
   const db = getDb();
+  if (patch.logoUrl !== undefined) db.prepare("UPDATE spaces SET logo_url = ? WHERE id = ?").run(patch.logoUrl, spaceId);
   if (patch.name !== undefined) db.prepare("UPDATE spaces SET name = ? WHERE id = ?").run(patch.name, spaceId);
   if (patch.isPrivate !== undefined) db.prepare("UPDATE spaces SET is_private = ? WHERE id = ?").run(patch.isPrivate ? 1 : 0, spaceId);
   if (patch.location !== undefined) db.prepare("UPDATE spaces SET location = ? WHERE id = ?").run(patch.location, spaceId);
@@ -32,13 +37,13 @@ export function slugify(name: string) {
   return slug;
 }
 
-export function createSpace(ownerId: string, name: string, template: "office" | "blank" | "garden" = "office", isPrivate = false): SpaceRow {
+export function createSpace(ownerId: string, name: string, template: Template = "office", isPrivate = false): SpaceRow {
   const db = getDb();
   const id = uid("s_");
   const slug = slugify(name);
   db.prepare("INSERT INTO spaces (id, slug, name, owner_id, is_private, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(id, slug, name.slice(0, 60), ownerId, isPrivate ? 1 : 0, now());
   db.prepare("INSERT INTO memberships (space_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)").run(id, ownerId, now());
-  const main = createMap(id, template === "garden" ? "Jardim" : template === "blank" ? "Sala principal" : "Escritório", template, true);
+  const main = createMap(id, TEMPLATE_NAMES[template] ?? "Sala principal", template, true);
   if (template === "office") {
     // Office template ships with a second room reachable through portals.
     const garden = createMap(id, "Jardim", "garden", false);
@@ -52,10 +57,10 @@ export function createSpace(ownerId: string, name: string, template: "office" | 
   return getSpace(id)!;
 }
 
-export function createMap(spaceId: string, name: string, template: "office" | "blank" | "garden" | MapData = "blank", isDefault = false): MapRow {
+export function createMap(spaceId: string, name: string, template: Template | MapData = "blank", isDefault = false): MapRow {
   const db = getDb();
   const id = uid("m_");
-  const data = typeof template === "string" ? (template === "office" ? buildDefaultMap() : template === "garden" ? buildGardenMap() : buildBlankMap()) : template;
+  const data = typeof template === "string" ? buildTemplate(template) : template;
   if (isDefault) db.prepare("UPDATE maps SET is_default = 0 WHERE space_id = ?").run(spaceId);
   db.prepare("INSERT INTO maps (id, space_id, name, data, is_default, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(id, spaceId, name.slice(0, 40), JSON.stringify(data), isDefault ? 1 : 0, now());
   return getMap(id)!;
@@ -171,4 +176,69 @@ export function setObjectState(spaceId: string, key: string, value: any) {
 
 export function updateUserProfile(userId: string, name: string, avatar: any) {
   getDb().prepare("UPDATE users SET name = ?, avatar = ? WHERE id = ?").run(name, JSON.stringify(avatar), userId);
+}
+
+// ---- events (agenda)
+export interface EventRow { id: string; space_id: string; map_id: string | null; zone_id: string | null; title: string; description: string | null; starts_at: number; ends_at: number; created_by: string; created_at: number }
+export function listEvents(spaceId: string, from = now() - 3600 * 1000, limit = 50) {
+  return getDb().prepare("SELECT e.*, u.name as created_by_name FROM events e LEFT JOIN users u ON u.id = e.created_by WHERE e.space_id = ? AND e.ends_at >= ? ORDER BY e.starts_at LIMIT ?").all(spaceId, from, limit) as unknown as (EventRow & { created_by_name: string })[];
+}
+export function createEvent(spaceId: string, userId: string, e: { title: string; description?: string; mapId?: string; zoneId?: string; startsAt: number; endsAt: number }) {
+  const id = uid("ev_");
+  getDb().prepare("INSERT INTO events (id, space_id, map_id, zone_id, title, description, starts_at, ends_at, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(id, spaceId, e.mapId ?? null, e.zoneId ?? null, e.title.slice(0, 80), (e.description ?? "").slice(0, 2000), e.startsAt, e.endsAt, userId, now());
+  return getDb().prepare("SELECT * FROM events WHERE id = ?").get(id) as unknown as EventRow;
+}
+export function deleteEvent(spaceId: string, id: string) { getDb().prepare("DELETE FROM events WHERE id = ? AND space_id = ?").run(id, spaceId); }
+export function getEvent(id: string) { return getDb().prepare("SELECT * FROM events WHERE id = ?").get(id) as unknown as EventRow | undefined; }
+/** Overlapping booking of the same zone. */
+export function zoneBusy(spaceId: string, mapId: string, zoneId: string, startsAt: number, endsAt: number, ignoreId?: string) {
+  return !!getDb().prepare("SELECT 1 FROM events WHERE space_id = ? AND map_id = ? AND zone_id = ? AND starts_at < ? AND ends_at > ? AND id != ?").get(spaceId, mapId, zoneId, endsAt, startsAt, ignoreId ?? "");
+}
+
+// ---- pins (mural)
+export function listPins(spaceId: string) { return getDb().prepare("SELECT * FROM pins WHERE space_id = ? ORDER BY created_at DESC LIMIT 100").all(spaceId) as any[]; }
+export function addPin(spaceId: string, mapId: string | null, text: string, authorId: string, authorName: string) {
+  const r = getDb().prepare("INSERT INTO pins (space_id, map_id, text, author_id, author_name, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(spaceId, mapId, text.slice(0, 1000), authorId, authorName, now());
+  return Number(r.lastInsertRowid);
+}
+export function removePin(spaceId: string, id: number) { getDb().prepare("DELETE FROM pins WHERE id = ? AND space_id = ?").run(id, spaceId); }
+export function searchMessages(spaceId: string, userId: string, q: string, limit = 50) {
+  return getDb().prepare(`SELECT id, scope, from_user as "from", from_name as fromName, from_color as fromColor, text, ts FROM messages
+    WHERE space_id = ? AND text LIKE ? AND (scope IN ('everyone','spotlight') OR from_user = ? OR to_user = ? OR recipients LIKE ?) ORDER BY ts DESC LIMIT ?`).all(spaceId, `%${q}%`, userId, userId, `%"${userId}"%`, limit) as any[];
+}
+
+// ---- moderation log
+export function logMod(spaceId: string, actor: { id: string; name: string }, action: string, target?: { id: string; name: string }, detail = "") {
+  getDb().prepare("INSERT INTO mod_log (space_id, actor_id, actor_name, action, target_id, target_name, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(spaceId, actor.id, actor.name, action, target?.id ?? null, target?.name ?? null, detail, now());
+}
+export function listModLog(spaceId: string) { return getDb().prepare("SELECT * FROM mod_log WHERE space_id = ? ORDER BY created_at DESC LIMIT 200").all(spaceId) as any[]; }
+
+// ---- uploads
+export function recordUpload(spaceId: string, userId: string, id: string, name: string, mime: string, size: number) {
+  getDb().prepare("INSERT INTO uploads (id, space_id, user_id, name, mime, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(id, spaceId, userId, name, mime, size, now());
+}
+export function listUploads(spaceId: string) { return getDb().prepare("SELECT * FROM uploads WHERE space_id = ? ORDER BY created_at DESC").all(spaceId) as any[]; }
+export function getUpload(id: string) { return getDb().prepare("SELECT * FROM uploads WHERE id = ?").get(id) as any; }
+export function deleteUpload(id: string) { getDb().prepare("DELETE FROM uploads WHERE id = ?").run(id); }
+
+// ---- visits & stats
+export function recordVisit(spaceId: string, mapId: string, userId: string) {
+  return Number(getDb().prepare("INSERT INTO visits (space_id, map_id, user_id, joined_at) VALUES (?, ?, ?, ?)").run(spaceId, mapId, userId, now()).lastInsertRowid);
+}
+export function endVisit(id: number) { getDb().prepare("UPDATE visits SET left_at = ? WHERE id = ? AND left_at IS NULL").run(now(), id); }
+export function stats(spaceId: string) {
+  const db = getDb();
+  const day = now() - 86400 * 1000, week = now() - 7 * 86400 * 1000;
+  return {
+    members: (db.prepare("SELECT COUNT(*) as n FROM memberships WHERE space_id = ?").get(spaceId) as any).n,
+    messages: (db.prepare("SELECT COUNT(*) as n FROM messages WHERE space_id = ?").get(spaceId) as any).n,
+    messages7d: (db.prepare("SELECT COUNT(*) as n FROM messages WHERE space_id = ? AND ts > ?").get(spaceId, week) as any).n,
+    visits24h: (db.prepare("SELECT COUNT(DISTINCT user_id) as n FROM visits WHERE space_id = ? AND joined_at > ?").get(spaceId, day) as any).n,
+    visits7d: (db.prepare("SELECT COUNT(DISTINCT user_id) as n FROM visits WHERE space_id = ? AND joined_at > ?").get(spaceId, week) as any).n,
+    minutes7d: Math.round(((db.prepare("SELECT SUM(COALESCE(left_at, ?) - joined_at) as t FROM visits WHERE space_id = ? AND joined_at > ?").get(now(), spaceId, week) as any).t ?? 0) / 60000),
+    byMap: db.prepare("SELECT m.name, COUNT(*) as visits, SUM(COALESCE(v.left_at, ?) - v.joined_at) as ms FROM visits v LEFT JOIN maps m ON m.id = v.map_id WHERE v.space_id = ? AND v.joined_at > ? GROUP BY v.map_id ORDER BY visits DESC").all(now(), spaceId, week) as any[],
+    byHour: db.prepare("SELECT CAST(strftime('%H', joined_at / 1000, 'unixepoch') AS INTEGER) as hour, COUNT(*) as n FROM visits WHERE space_id = ? AND joined_at > ? GROUP BY hour ORDER BY hour").all(spaceId, week) as any[],
+    topChatters: db.prepare("SELECT from_name as name, COUNT(*) as n FROM messages WHERE space_id = ? AND ts > ? GROUP BY from_user ORDER BY n DESC LIMIT 5").all(spaceId, week) as any[],
+  };
 }

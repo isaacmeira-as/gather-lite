@@ -41,12 +41,17 @@ async function render() {
         <label>Nome <input name="sname" maxlength="60" value="${esc(si.name ?? "")}" /></label>
         <label class="row"><input type="checkbox" name="priv" ${si.isPrivate ? "checked" : ""} /> Privado (só entra com convite)</label>
         <label>Cidade (hora e clima) <input name="loc" maxlength="80" value="${esc(si.location ?? "São Paulo")}" placeholder="São Paulo" /></label>
+        <label>Logo do espaço <span class="upload-row"><input type="file" accept="image/*" hidden /><button type="button" class="sm" data-a="logo">⬆ Enviar logo</button>${si.logoUrl ? '<button type="button" class="sm" data-a="logo-rm">remover</button>' : ""}<span class="muted small logo-status">${si.logoUrl ? "logo definido" : ""}</span></span></label>
         <div class="row"><label style="flex:1">Clima <select name="wx"><option value="auto">automático (real)</option><option value="clear">céu limpo</option><option value="cloudy">nublado</option><option value="fog">neblina</option><option value="rain">chuva</option><option value="storm">tempestade</option><option value="snow">neve</option></select></label>
         <label style="flex:1">Hora <select name="tm"><option value="auto">automática</option><option value="day">sempre dia</option><option value="night">sempre noite</option></select></label></div>
         <div class="row"><button class="sm primary" data-a="save">Salvar</button><button class="sm danger" data-a="del">Apagar espaço</button></div><p class="error"></p></div>`);
       (priv.querySelector('[name="wx"]') as HTMLSelectElement).value = si.weatherMode ?? "auto";
       (priv.querySelector('[name="tm"]') as HTMLSelectElement).value = si.timeMode ?? "auto";
       priv.querySelectorAll("input").forEach((i) => i.addEventListener("keydown", (e) => e.stopPropagation()));
+      const logoIn = priv.querySelector('input[type="file"]') as HTMLInputElement;
+      priv.querySelector('[data-a="logo"]')!.addEventListener("click", () => logoIn.click());
+      logoIn.addEventListener("change", async () => { const file = logoIn.files?.[0]; if (!file) return; try { const up = await spaces.upload(slug, file); const { space } = await spaces.update(slug, { logoUrl: up.url }); net.spaceInfo = space; priv.querySelector(".logo-status")!.textContent = "logo definido (recarregue para ver no topo)"; } catch (e: any) { priv.querySelector(".logo-status")!.textContent = e.message; } });
+      priv.querySelector('[data-a="logo-rm"]')?.addEventListener("click", async () => { const { space } = await spaces.update(slug, { logoUrl: null }); net.spaceInfo = space; priv.querySelector(".logo-status")!.textContent = "removido"; });
       priv.querySelector('[data-a="save"]')!.addEventListener("click", async () => {
         const v = (n: string) => (priv.querySelector(`[name="${n}"]`) as HTMLInputElement).value;
         try {
