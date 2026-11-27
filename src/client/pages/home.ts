@@ -12,33 +12,46 @@ export async function currentUser(): Promise<User | null> {
 }
 
 /** Auth box (login / register / guest). Resolves with the user once logged in. */
+let providerInfo: { google: boolean; password: boolean; guest: boolean; allowedDomains: string[] } | null = null;
+async function getProviders() {
+  if (!providerInfo) { try { providerInfo = await providers(); } catch { providerInfo = { google: false, password: true, guest: true, allowedDomains: [] }; } }
+  return providerInfo;
+}
+
+/** Auth box (Google / login / register / guest). Resolves with the user once logged in. */
 export function authBox(root: HTMLElement, opts: { allowGuest: boolean; title?: string; intro?: string }): Promise<User> {
-  return new Promise((resolve) => {
-    let mode: "login" | "register" | "guest" = opts.allowGuest ? "guest" : "login";
+  return new Promise(async (resolve) => {
+    const prov = await getProviders();
+    const guestOk = opts.allowGuest && prov.guest;
+    const modes: ("guest" | "login" | "register")[] = [...(guestOk ? ["guest" as const] : []), ...(prov.password ? ["login" as const, "register" as const] : [])];
+    let mode: "guest" | "login" | "register" | "google" = modes[0] ?? "google";
     const render = () => {
       root.innerHTML = "";
+      const domainHint = prov.allowedDomains.length ? `Só e-mails ${prov.allowedDomains.map((d) => "@" + d).join(" ou ")}.` : "";
       const card = el(`<form class="card"><div class="login-hero"><canvas></canvas></div><h1>${esc(opts.title ?? "Gather Lite")}</h1><p class="muted">${esc(opts.intro ?? "Escritório virtual 2D para o seu time.")}</p>
-        <div class="auth-tabs">${opts.allowGuest ? '<button type="button" data-m="guest">Visitante</button>' : ""}<button type="button" data-m="login">Entrar</button><button type="button" data-m="register">Criar conta</button></div>
-        <div class="fields"></div><button type="submit" class="primary wide-btn">Continuar</button><p class="error"></p></form>`);
+        ${prov.google ? `<a class="google-btn" href="/api/auth/google"><span class="g">G</span> Entrar com Google</a><p class="muted small center">${esc(domainHint)}</p>` : ""}
+        ${modes.length ? `<div class="auth-tabs">${modes.map((m) => `<button type="button" data-m="${m}">${m === "guest" ? "Visitante" : m === "login" ? "Entrar" : "Criar conta"}</button>`).join("")}</div><div class="fields"></div><button type="submit" class="primary wide-btn">Continuar</button>` : ""}
+        ${!prov.google && !modes.length ? '<p class="error">Nenhum método de login está ativo neste servidor.</p>' : ""}<p class="error"></p></form>`);
       card.querySelectorAll<HTMLButtonElement>("[data-m]").forEach((b) => { b.classList.toggle("active", b.dataset.m === mode); b.addEventListener("click", () => { mode = b.dataset.m as any; render(); }); });
-      const fields = card.querySelector(".fields")!;
-      if (mode === "guest") fields.innerHTML = `<label>Seu nome <input name="name" required maxlength="24" autofocus /></label><p class="muted small">Entra sem cadastro. Para criar espaços e ter perfil permanente, crie uma conta.</p>`;
-      if (mode === "login") fields.innerHTML = `<label>E-mail <input name="email" type="email" required autofocus /></label><label>Senha <input name="password" type="password" required minlength="6" /></label>`;
-      if (mode === "register") fields.innerHTML = `<label>Nome <input name="name" required maxlength="24" autofocus /></label><label>E-mail <input name="email" type="email" required /></label><label>Senha <input name="password" type="password" required minlength="6" placeholder="mínimo 6 caracteres" /></label>`;
+      const fields = card.querySelector(".fields");
+      if (fields) {
+        if (mode === "guest") fields.innerHTML = `<label>Seu nome <input name="name" required maxlength="24" autofocus /></label><p class="muted small">Entra sem cadastro. Para criar espaços e ter perfil permanente, crie uma conta.</p>`;
+        if (mode === "login") fields.innerHTML = `<label>E-mail <input name="email" type="email" required autofocus /></label><label>Senha <input name="password" type="password" required minlength="6" /></label>`;
+        if (mode === "register") fields.innerHTML = `<label>Nome <input name="name" required maxlength="24" autofocus /></label><label>E-mail <input name="email" type="email" required /></label><label>Senha <input name="password" type="password" required minlength="6" placeholder="mínimo 6 caracteres" /></label>`;
+      }
       card.addEventListener("submit", async (e) => {
         e.preventDefault();
         const v = (n: string) => (card.querySelector(`[name="${n}"]`) as HTMLInputElement)?.value.trim();
-        const err = card.querySelector(".error")!;
+        const err = card.querySelectorAll(".error")[card.querySelectorAll(".error").length - 1];
         err.textContent = "";
         try {
           const r = mode === "guest" ? await auth.guest(v("name")) : mode === "login" ? await auth.login(v("email"), v("password")) : await auth.register(v("email"), v("password"), v("name"));
           setToken(r.token);
-          if (mode === "register" || (mode === "guest")) { try { await auth.update({ avatar: randomAvatar() }); r.user.avatar = (await auth.me()).user.avatar; } catch {} }
+          if (mode === "register" || mode === "guest") { try { await auth.update({ avatar: randomAvatar() }); r.user.avatar = (await auth.me()).user.avatar; } catch {} }
           resolve(r.user);
         } catch (ex: any) { err.textContent = ex.message; }
       });
       drawAvatarPreview(card.querySelector("canvas")!, randomAvatar(), 2);
-      providers().then((p) => { if (p.google && mode !== "guest") card.querySelector("button[type=submit]")!.insertAdjacentHTML("afterend", `<a class="wide-btn" style="display:block;text-align:center;margin-top:8px" href="/api/auth/google">Entrar com Google</a>`); }).catch(() => {});
       root.appendChild(card);
     };
     render();

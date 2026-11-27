@@ -64,4 +64,4 @@ export const spaces = {
   },
   mediaToken: (slug: string, group: string) => api<{ token: string; url: string }>("POST", `/spaces/${slug}/media/token`, { group }),
 };
-export const providers = () => api<{ google: boolean }>("GET", "/auth/providers");
+export const providers = () => api<{ google: boolean; password: boolean; guest: boolean; allowedDomains: string[] }>("GET", "/auth/providers");

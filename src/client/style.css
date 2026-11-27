@@ -183,3 +183,6 @@ canvas.draw { width:100%; aspect-ratio:5/3; background:#fff; border-radius:8px; 
 .status-text { font-size:11px; color:var(--muted); margin-left:4px; }
 #space-logo { height:26px; border-radius:6px; }
 .upload-row { display:flex; gap:6px; align-items:center; }
+.google-btn { display:flex; align-items:center; justify-content:center; gap:10px; background:#fff; color:#1f2937; font-weight:600; border-radius:10px; padding:10px 14px; text-decoration:none; margin:12px 0 4px; border:1px solid #d1d5db; }
+.google-btn:hover { background:#f3f4f6; }
+.google-btn .g { font-weight:800; color:#4285f4; font-size:18px; }

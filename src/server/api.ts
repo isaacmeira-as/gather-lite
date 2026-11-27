@@ -21,6 +21,7 @@ const cleanName = (n: any) => String(n ?? "").replace(/[\u0000-\u001f<>]/g, "").
 
 // ------------------------------------------------------------------ auth
 api.post("/auth/register", (req, res) => {
+  if (process.env.AUTH_MODE === "google") return bad(res, "cadastro por senha desativado: entre com Google", 403);
   const { email, password, name } = req.body ?? {};
   if (!validEmail(email)) return bad(res, "e-mail inválido");
   if (typeof password !== "string" || password.length < 6) return bad(res, "senha precisa de 6+ caracteres");
@@ -35,6 +36,7 @@ api.post("/auth/register", (req, res) => {
 });
 
 api.post("/auth/login", (req, res) => {
+  if (process.env.AUTH_MODE === "google") return bad(res, "login por senha desativado: entre com Google", 403);
   const { email, password } = req.body ?? {};
   const row = getDb().prepare("SELECT * FROM users WHERE email = ?").get(String(email ?? "").toLowerCase()) as unknown as UserRow | undefined;
   if (!row || !verifyPassword(String(password ?? ""), row.password_hash)) return bad(res, "e-mail ou senha incorretos", 401);
@@ -42,6 +44,7 @@ api.post("/auth/login", (req, res) => {
 });
 
 api.post("/auth/guest", (req, res) => {
+  if (process.env.ALLOW_GUESTS === "0") return bad(res, "entrada como visitante desativada", 403);
   const nm = cleanName(req.body?.name);
   if (!nm) return bad(res, "nome obrigatório");
   const row = createGuest(nm);
@@ -323,23 +326,33 @@ api.post("/spaces/:slug/media/token", requireAuth, async (req: AuthedRequest, re
 
 // ---------------------------------------------------------------- Google login (needs GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET)
 const googleEnabled = () => !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
-api.get("/auth/providers", (_req, res) => res.json({ google: googleEnabled() }));
+// AUTH_MODE=google turns off e-mail/password accounts; ALLOW_GUESTS=0 turns off guest entry.
+const passwordEnabled = () => process.env.AUTH_MODE !== "google";
+const guestsEnabled = () => process.env.ALLOW_GUESTS !== "0";
+const allowedDomains = () => (process.env.GOOGLE_ALLOWED_DOMAINS ?? "").split(",").map((d) => d.trim().toLowerCase()).filter(Boolean);
+const publicUrl = (req: any) => (process.env.PUBLIC_URL ?? `${req.headers["x-forwarded-proto"] ?? req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+api.get("/auth/providers", (_req, res) => res.json({ google: googleEnabled(), password: passwordEnabled(), guest: guestsEnabled(), allowedDomains: allowedDomains() }));
 api.get("/auth/google", (req, res) => {
   if (!googleEnabled()) return bad(res, "login Google não configurado", 503);
-  const redirect = `${req.protocol}://${req.get("host")}/api/auth/google/callback`;
+  const redirect = `${publicUrl(req)}/api/auth/google/callback`;
   const state = uid("st_");
-  const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(process.env.GOOGLE_CLIENT_ID!)}&redirect_uri=${encodeURIComponent(redirect)}&response_type=code&scope=openid%20email%20profile&state=${state}`;
+  const hd = allowedDomains().length === 1 ? `&hd=${encodeURIComponent(allowedDomains()[0])}` : "";
+  const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(process.env.GOOGLE_CLIENT_ID!)}&redirect_uri=${encodeURIComponent(redirect)}&response_type=code&scope=openid%20email%20profile&state=${state}&prompt=select_account${hd}`;
   res.redirect(url);
 });
 api.get("/auth/google/callback", async (req, res) => {
   if (!googleEnabled()) return bad(res, "login Google não configurado", 503);
   try {
-    const redirect = `${req.protocol}://${req.get("host")}/api/auth/google/callback`;
+    const redirect = `${publicUrl(req)}/api/auth/google/callback`;
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ code: String(req.query.code ?? ""), client_id: process.env.GOOGLE_CLIENT_ID!, client_secret: process.env.GOOGLE_CLIENT_SECRET!, redirect_uri: redirect, grant_type: "authorization_code" }) });
     const tok = await tokenRes.json() as any;
     if (!tok.access_token) throw new Error("token inválido");
     const info = await (await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { authorization: `Bearer ${tok.access_token}` } })).json() as any;
     if (!info.sub || !info.email) throw new Error("perfil inválido");
+    if (info.email_verified === false) throw new Error("e-mail não verificado no Google");
+    const domains = allowedDomains();
+    const domain = String(info.email).split("@")[1]?.toLowerCase();
+    if (domains.length && !domains.includes(domain)) return res.status(403).send(`<!doctype html><meta charset="utf-8"><body style="font-family:sans-serif;background:#0b1220;color:#e5e7eb;display:flex;align-items:center;justify-content:center;height:100vh"><div><h2>Conta não autorizada</h2><p>Use um e-mail de ${domains.map((d) => "@" + d).join(" ou ")}.</p><a href="/" style="color:#93c5fd">voltar</a></div>`);
     const db = getDb();
     let row = db.prepare("SELECT * FROM users WHERE google_id = ? OR email = ?").get(info.sub, String(info.email).toLowerCase()) as unknown as UserRow | undefined;
     if (!row) {
