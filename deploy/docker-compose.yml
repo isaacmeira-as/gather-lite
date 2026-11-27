@@ -1,0 +1,37 @@
+# Produção em uma instância: app + Caddy (HTTPS automático).
+# Uso: cp .env.example .env (preencha) && docker compose -f deploy/docker-compose.yml up -d --build
+services:
+  app:
+    build: ..
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      - NODE_ENV=production
+      - PORT=2567
+      - DB_PATH=/data/gather-lite.sqlite
+      - UPLOAD_DIR=/data/uploads
+    volumes:
+      - gather-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:2567/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN:?defina DOMAIN no .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+volumes:
+  gather-data:
+  caddy-data:
+  caddy-config:
