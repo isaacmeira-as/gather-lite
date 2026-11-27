@@ -11,6 +11,18 @@ const shadow = (c: Ctx, x = 4, y = 24, w = 24, h = 7) => { c.fillStyle = "rgba(0
 const outline = (c: Ctx, x: number, y: number, w: number, h: number, color = "#1f1a17") => { c.fillStyle = color; c.fillRect(x - 1, y - 1, w + 2, 1); c.fillRect(x - 1, y + h, w + 2, 1); c.fillRect(x - 1, y, 1, h); c.fillRect(x + w, y, 1, h); };
 const box = (c: Ctx, x: number, y: number, w: number, h: number, fill: string, top: string, side: string) => { outline(c, x, y, w, h); r(c, x, y, w, h, fill); r(c, x, y, w, 3, top); r(c, x, y + h - 3, w, 3, side); };
 
+/** Stage spotlight: soft light pool on the floor with a microphone glyph. */
+function spotlight(c: Ctx, f: number) {
+  const g = c.createRadialGradient(16, 16, 2, 16, 16, 16);
+  g.addColorStop(0, `rgba(255,241,170,${0.55 + f * 0.15})`); g.addColorStop(0.7, "rgba(250,204,21,0.25)"); g.addColorStop(1, "rgba(250,204,21,0)");
+  c.fillStyle = g; c.fillRect(0, 0, 32, 32);
+  c.strokeStyle = `rgba(253,230,138,${0.5 + f * 0.3})`; c.lineWidth = 1.5; c.beginPath(); c.arc(16, 16, 11 + f, 0, Math.PI * 2); c.stroke();
+  // microphone
+  r(c, 14, 8, 4, 8, "#fff7d6"); c.fillStyle = "#fff7d6"; c.beginPath(); c.arc(16, 8, 2, Math.PI, 0); c.fill(); c.beginPath(); c.arc(16, 16, 2, 0, Math.PI); c.fill();
+  c.strokeStyle = "#fff7d6"; c.lineWidth = 1.5; c.beginPath(); c.arc(16, 15, 5, 0.15, Math.PI - 0.15); c.stroke();
+  r(c, 15.5, 20, 1, 3, "#fff7d6"); r(c, 13, 23, 6, 1.5, "#fff7d6");
+}
+
 function noise(seed: number) { let s = seed; return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }; }
 
 function carpet(c: Ctx, base: string, dark: string, light: string, seed: number) {
@@ -92,8 +104,8 @@ const objectPainters: Record<number, (c: Ctx) => void> = {
   [O.VENDING]: (c) => { outline(c, 4, 1, 24, 30, "#7f1d1d"); r(c, 4, 1, 24, 30, "#dc2626"); r(c, 6, 4, 14, 20, "#111827"); for (let y = 0; y < 3; y++) for (let x = 0; x < 3; x++) r(c, 8 + x * 4, 6 + y * 6, 3, 4, ["#facc15", "#3b82f6", "#22c55e", "#f97316", "#a855f7", "#06b6d4", "#ec4899", "#84cc16", "#f43f5e"][y * 3 + x]); r(c, 22, 6, 4, 6, "#f9fafb"); r(c, 22, 14, 4, 2, "#1f2937"); r(c, 6, 25, 18, 3, "#1f2937"); },
   [O.SOFA]: (c) => { shadow(c, 1, 25, 30, 7); outline(c, 1, 6, 30, 22, "#3b1a7a"); r(c, 1, 6, 30, 22, "#7c3aed"); r(c, 1, 6, 30, 6, "#6d28d9"); r(c, 4, 12, 24, 10, "#8b5cf6"); r(c, 5, 13, 11, 4, "#a78bfa"); r(c, 1, 12, 4, 14, "#6d28d9"); r(c, 27, 12, 4, 14, "#6d28d9"); },
   [O.LAMP]: (c) => { shadow(c, 8, 28, 16, 4); r(c, 14, 10, 4, 20, "#374151"); r(c, 15, 10, 1, 20, "#6b7280"); r(c, 10, 28, 12, 3, "#1f2937"); outline(c, 6, 2, 20, 10, "#b45309"); r(c, 6, 2, 20, 10, "#fde68a"); r(c, 8, 4, 16, 6, "#fef3c7"); r(c, 9, 5, 5, 2, "#ffffff"); },
-  [O.SPOTLIGHT]: (c) => { c.fillStyle = "rgba(250,204,21,0.30)"; c.beginPath(); c.arc(16, 16, 14, 0, Math.PI * 2); c.fill(); c.strokeStyle = "#facc15"; c.lineWidth = 2; c.beginPath(); c.arc(16, 16, 12, 0, Math.PI * 2); c.stroke(); r(c, 14, 8, 4, 10, "#facc15"); r(c, 14, 20, 4, 4, "#facc15"); },
-  [V.SPOTLIGHT_B]: (c) => { c.fillStyle = "rgba(250,204,21,0.42)"; c.beginPath(); c.arc(16, 16, 15, 0, Math.PI * 2); c.fill(); c.strokeStyle = "#fde68a"; c.lineWidth = 2; c.beginPath(); c.arc(16, 16, 10, 0, Math.PI * 2); c.stroke(); r(c, 14, 8, 4, 10, "#fde68a"); r(c, 14, 20, 4, 4, "#fde68a"); },
+  [O.SPOTLIGHT]: (c) => spotlight(c, 0),
+  [V.SPOTLIGHT_B]: (c) => spotlight(c, 1),
   [O.DOOR]: (c) => { planks(c, "#c99a6b", "#a2743f", "#dcb184", 0); r(c, 2, 0, 28, 3, "#6b3f1f"); r(c, 2, 29, 28, 3, "#6b3f1f"); r(c, 2, 3, 2, 26, "#6b3f1f88"); r(c, 28, 3, 2, 26, "#6b3f1f88"); r(c, 10, 3, 12, 26, "#d9b47a66"); },
   [O.FENCE]: (c) => { r(c, 0, 12, 32, 4, "#a16207"); r(c, 0, 22, 32, 4, "#a16207"); r(c, 0, 12, 32, 1, "#ca8a04"); r(c, 0, 22, 32, 1, "#ca8a04"); r(c, 4, 6, 4, 24, "#b8771a"); r(c, 24, 6, 4, 24, "#b8771a"); r(c, 4, 6, 4, 1, "#e3a92e"); r(c, 24, 6, 4, 1, "#e3a92e"); r(c, 4, 29, 4, 1, "#6b4106"); r(c, 24, 29, 4, 1, "#6b4106"); },
   [O.PIANO]: (c) => { shadow(c, 1, 25, 30, 7); outline(c, 1, 4, 30, 24, "#000"); r(c, 1, 4, 30, 24, "#111827"); r(c, 2, 5, 28, 2, "#374151"); r(c, 3, 18, 26, 8, "#f9fafb"); for (let i = 0; i < 7; i++) r(c, 5 + i * 4, 18, 2, 5, "#111827"); r(c, 3, 8, 26, 8, "#1f2937"); r(c, 8, 10, 16, 3, "#f3f4f6"); },

@@ -186,7 +186,11 @@ export class OfficeScene extends Phaser.Scene {
   gridGfx!: Phaser.GameObjects.Graphics;
   dragStart: { x: number; y: number } | null = null;
   dragGfx!: Phaser.GameObjects.Graphics;
+  prompt!: Phaser.GameObjects.Container;
+  promptBg!: Phaser.GameObjects.Graphics;
+  promptKey!: Phaser.GameObjects.Text;
   promptText!: Phaser.GameObjects.Text;
+  promptTween?: Phaser.Tweens.Tween;
   nearbyInteractable: Interactable | null = null;
   nearbyIds = new Set<string>();
   hearingTick = 0;
@@ -231,7 +235,11 @@ export class OfficeScene extends Phaser.Scene {
     this.gridGfx = this.add.graphics().setDepth(0.8).setVisible(false);
     this.dragGfx = this.add.graphics().setDepth(4999);
     this.buildCursor = this.add.rectangle(0, 0, TILE, TILE).setStrokeStyle(2, 0xfacc15).setOrigin(0).setDepth(5000).setVisible(false);
-    this.promptText = this.add.text(0, 0, "X", { fontFamily: FONT, fontSize: "10px", color: "#111827", backgroundColor: "#facc15", padding: { x: 5, y: 2 }, resolution: 4 }).setOrigin(0.5, 1).setDepth(6000).setVisible(false);
+    // Interaction prompt: dark pill with a white "X" keycap and the object's name.
+    this.promptBg = this.add.graphics();
+    this.promptKey = this.add.text(0, 0, "X", { fontFamily: FONT, fontSize: "8px", fontStyle: "700", color: "#0b1220", resolution: 4 }).setOrigin(0.5);
+    this.promptText = this.add.text(0, 0, "", { fontFamily: FONT, fontSize: "8px", fontStyle: "600", color: "#ffffff", resolution: 4 }).setOrigin(0, 0.5);
+    this.prompt = this.add.container(0, 0, [this.promptBg, this.promptKey, this.promptText]).setDepth(6000).setVisible(false);
     this.drawZones();
     this.drawMarkers();
     this.lighting = new Lighting(this, this.mapData);
@@ -492,7 +500,7 @@ export class OfficeScene extends Phaser.Scene {
     if (!me || net.switching) return;
     const it = interactableNear(this.mapData, me.x, me.y);
     if (it?.id !== this.nearbyInteractable?.id) { this.nearbyInteractable = it; bus.emit("interactable", it); }
-    if (it) this.promptText.setPosition(it.x * TILE + TILE / 2, it.y * TILE - 2).setVisible(true); else this.promptText.setVisible(false);
+    if (it) this.showPrompt(it); else { this.prompt.setVisible(false); this.promptTween?.stop(); }
     if (this.autoPath && this.autoPath.length && this.autoPath[0].x === me.x && this.autoPath[0].y === me.y) {
       this.autoPath.shift();
       this.autoPathLastProgress = this.time.now;
@@ -500,6 +508,27 @@ export class OfficeScene extends Phaser.Scene {
     }
     this.updateHearing(true);
     bus.emit("me:moved", { x: me.x, y: me.y, spotlight: isSpotlight(this.mapData, me.x, me.y), zone: zoneAt(this.mapData, me.x, me.y) });
+  }
+
+  showPrompt(it: Interactable) {
+    const label = it.title.length > 18 ? it.title.slice(0, 17) + "…" : it.title;
+    this.promptText.setText(label);
+    const keyW = 12, pad = 4, gap = 4;
+    const w = pad + keyW + gap + this.promptText.width + pad, h = 16;
+    this.promptBg.clear();
+    this.promptBg.fillStyle(0x000000, 0.25).fillRoundedRect(-w / 2 + 1, -h / 2 + 2, w, h, 5);
+    this.promptBg.fillStyle(0x0b1220, 0.92).fillRoundedRect(-w / 2, -h / 2, w, h, 5);
+    this.promptBg.lineStyle(1, 0xffffff, 0.12).strokeRoundedRect(-w / 2, -h / 2, w, h, 5);
+    this.promptBg.fillStyle(0xffffff, 1).fillRoundedRect(-w / 2 + pad, -5, keyW, 10, 2);
+    this.promptBg.fillStyle(0xcbd5e1, 1).fillRect(-w / 2 + pad, 4, keyW, 1);
+    this.promptKey.setPosition(-w / 2 + pad + keyW / 2, 0);
+    this.promptText.setPosition(-w / 2 + pad + keyW + gap, 0);
+    this.promptBg.fillStyle(0x0b1220, 0.92).fillTriangle(-3, h / 2, 3, h / 2, 0, h / 2 + 4);
+    const baseY = it.y * TILE - 10;
+    this.prompt.setPosition(it.x * TILE + TILE / 2, baseY).setVisible(true).setAlpha(0);
+    this.promptTween?.stop();
+    this.tweens.add({ targets: this.prompt, alpha: 1, duration: 150 });
+    this.promptTween = this.tweens.add({ targets: this.prompt, y: baseY - 3, duration: 700, yoyo: true, repeat: -1, ease: "Sine.InOut" });
   }
 
   updateHearing(force = false) {

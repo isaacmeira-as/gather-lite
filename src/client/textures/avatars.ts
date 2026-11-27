@@ -61,9 +61,10 @@ function drawFrame(c: Ctx, dir: number, frame: number, a: AvatarConfig, sitting 
   if (fem) { /* drawn above */ }
   else if (side) { const ax = dir === 1 ? 11 : 17; r(c, ax, 18 + by + walk * 2, 4, 10, shirt); r(c, ax, 26 + by + walk * 2, 4, 2, skin); }
   else { r(c, 6, 18 + by - walk * 2, 3, 9, shirt); r(c, 23, 18 + by + walk * 2, 3, 9, shirt); r(c, 6, 26 + by - walk * 2, 3, 2, skin); r(c, 23, 26 + by + walk * 2, 3, 2, skin); }
-  // head
+  // head (feminine: rounder face, no jaw shading; masculine: subtle jaw line)
   r(c, 8, 4 + by, 16, 14, skin);
-  r(c, 8, 16 + by, 16, 2, skinD);
+  if (fem) { c.clearRect(8, 4 + by, 1, 1); c.clearRect(23, 4 + by, 1, 1); c.clearRect(8, 17 + by, 1, 1); c.clearRect(23, 17 + by, 1, 1); r(c, 9, 17 + by, 14, 1, skin); r(c, 13, 18 + by, 6, 1, skinD); }
+  else { r(c, 9, 17 + by, 14, 1, skinD); }
   if (dir !== 3) { r(c, 8, 4 + by, 16, 1, shade(skin, 0.12)); }
   // hair styles: 0 short, 1 long, 2 bun, 3 spiky, 4 bald, 5 curly
   const h = a.hair;
