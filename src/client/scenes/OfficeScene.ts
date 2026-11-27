@@ -1,9 +1,9 @@
 import Phaser from "phaser";
 import { net, PlayerView, ZoneView, InteractableView, PortalView } from "../net";
 import { bus } from "../bus";
-import { TILE, DIR, isSolid, O, F, TALL_OBJECTS } from "../../shared/tiles";
+import { TILE, DIR, isSolid, O, F, TALL_OBJECTS, WALL_MOUNTED, isWallLike } from "../../shared/tiles";
 import { MapData, Interactable, Zone, Portal, canHear, findPath, interactableNear, zoneAt, isSpotlight, inBounds, idx, stepTarget, isWalkable } from "../../shared/map";
-import { drawTileset, V, TILESET_COLS, TILESET_ROWS } from "../textures/tiles";
+import { drawTileset, V, TILESET_COLS, TILESET_ROWS, wallFaceIdFor } from "../textures/tiles";
 import { drawAvatarSheet, AV_W, AV_H, AV_FRAMES_PER_DIR } from "../textures/avatars";
 import { normalizeAvatar, avatarKey } from "../../shared/avatar";
 import { ensureFxTextures, Lighting, Weather, WeatherView, darknessFor, poof, dust, reactionFx } from "./fx";
@@ -328,15 +328,16 @@ export class OfficeScene extends Phaser.Scene {
     this.objectLayer.removeTileAt(x, y);
     if (!o) return;
     let visual = o;
-    if (o === O.WALL) {
+    let isFace = false;
+    if (isWallLike(o)) {
       const below = y + 1 < this.mapData.height ? this.mapData.objects[idx(this.mapData, x, y + 1)] : O.WALL;
-      const belowSolidWall = below === O.WALL || below === O.WINDOW || below === O.WHITEBOARD || below === O.TV || below === O.PAINTING || below === O.SIGN;
-      visual = belowSolidWall ? O.WALL : V.WALL_FACE;
+      const belowSolidWall = isWallLike(below) || WALL_MOUNTED.has(below);
+      if (!belowSolidWall) { visual = o === O.WALL ? V.WALL_FACE : (wallFaceIdFor(o) ?? o); isFace = true; }
     }
-    if (TALL_OBJECTS.has(o) || visual === V.WALL_FACE) {
+    if (TALL_OBJECTS.has(o) || isFace) {
       const img = this.add.image(x * TILE, y * TILE, "tiles", String(visual)).setOrigin(0).setDepth(y * TILE + TILE - 1);
       this.tall.set(i, img);
-      if (visual === V.WALL_FACE || o === O.WINDOW || o === O.BOOKSHELF || o === O.LOCKER || o === O.FRIDGE || o === O.VENDING) this.wallShadow(x, y);
+      if (isFace || WALL_MOUNTED.has(o) || TALL_OBJECTS.has(o)) this.wallShadow(x, y);
     } else {
       this.objectLayer.putTileAt(visual, x, y);
       if (ANIMATED[o]) this.animTiles.push({ x, y, layer: "objects", a: o, b: ANIMATED[o] });

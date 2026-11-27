@@ -601,6 +601,36 @@ async function main() {
     }
   });
 
+  await step("object catalog: 1000+ objects, search UI, placing solid and sittable catalog items", async () => {
+    await ensureMap(a, "Escritório"); await ensureMap(b, "Escritório");
+    await unfocus(a); await a.keyboard.press("b");
+    await a.waitForSelector("#build-panel:not([hidden])");
+    await a.click('#build-tabs [data-tab="objects"]');
+    await a.waitForSelector("#build-body .obj-grid .obj");
+    const total = await a.$eval('#build-body [name="q"]', (e) => (e as HTMLInputElement).placeholder);
+    assert(/\d{4}/.test(total), "placeholder shows 1000+ objects: " + total);
+    await a.fill('#build-body [name="q"]', "sofá azul");
+    await waitFor(async () => { const n = await a.$$eval("#build-body .obj-grid .obj", (e) => e.length); return n >= 2 && n <= 6; }, "search narrows the grid");
+    await a.click('#build-body [data-cat="jardim"]');
+    await a.fill('#build-body [name="q"]', "");
+    await waitFor(async () => (await a.$$eval("#build-body .obj-grid .obj", (e) => e.length)) > 50, "category grid");
+    await a.keyboard.press("Escape");
+    // First sofa (solid) and first chair (sittable) of the catalog: sofa, sofaL and armchair have 14 fabrics each.
+    const sofaId = 64, chairId = 64 + 14 * 3;
+    await send(a, "build", { layer: "objects", x: 9, y: 7, tile: sofaId });
+    await send(a, "build", { layer: "objects", x: 10, y: 7, tile: chairId });
+    await waitFor(async () => { const d = await mapData(b); return d.objects[7 * 44 + 9] === sofaId && d.objects[7 * 44 + 10] === chairId; }, "Bob sees catalog objects");
+    await teleport(a, 8, 7); await unfocus(a);
+    await a.keyboard.down("ArrowRight"); await sleep(350); await a.keyboard.up("ArrowRight");
+    assert((await me(a)).x === 8, "catalog sofa is solid");
+    await teleport(a, 10, 7);
+    await waitFor(async () => (await me(a)).sitting === true, "catalog chair is sittable");
+    await send(a, "build", { layer: "objects", x: 9, y: 7, tile: 0 }); await send(a, "build", { layer: "objects", x: 10, y: 7, tile: 0 });
+    await send(a, "build", { layer: "objects", x: 9, y: 8, tile: 5000 });
+    await sleep(300);
+    assert((await mapData(b)).objects[8 * 44 + 9] === 0, "unknown ids are rejected");
+  });
+
   await step("media config reports LiveKit as not configured here; token endpoint refuses", async () => {
     const cfg = await api("GET", "/media/config");
     assert(cfg.enabled === false, "media disabled without env");

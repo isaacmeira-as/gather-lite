@@ -1,7 +1,18 @@
 import { TILE, F, O } from "../../shared/tiles";
+import { CATALOG, CATALOG_END, CATALOG_BY_ID, PALETTES } from "../../shared/catalog";
+import { PAINTERS } from "./catalogPainters";
 
-export const TILESET_COLS = 16;
-export const TILESET_ROWS = 4;
+export const TILESET_COLS = 32;
+/** Render-only wall faces for catalog walls: one id per wall colour, after the catalog. */
+export const WALL_FACE_BASE = CATALOG_END;
+const WALL_COLORS = PALETTES.wall.map((c) => c.hex);
+export const TILESET_ROWS = Math.ceil((WALL_FACE_BASE + WALL_COLORS.length) / TILESET_COLS);
+export function wallFaceIdFor(objectId: number): number | null {
+  const c = CATALOG_BY_ID.get(objectId);
+  if (!c || c.base !== "wall") return null;
+  const i = WALL_COLORS.indexOf(c.color);
+  return i < 0 ? null : WALL_FACE_BASE + i;
+}
 /** Render-only tile ids (never stored in the map). */
 export const V = { WALL_FACE: 48, WATER_B: 49, FOUNTAIN_B: 50, COMPUTER_B: 51, ARCADE_B: 52, SPOTLIGHT_B: 53, WALL_TOP_END: 54, GRASS_B: 55, GRASS_C: 56, WOOD_B: 57, STONE_B: 58, CARPET_BLUE_B: 59, PATH_B: 60 } as const;
 
@@ -138,11 +149,14 @@ export function drawTileset(canvas: HTMLCanvasElement) {
   };
   for (const [id, fn] of Object.entries(floorPainters)) paint(Number(id), fn);
   for (const [id, fn] of Object.entries(objectPainters)) paint(Number(id), fn);
+  for (const item of CATALOG) { const fn = PAINTERS[item.base]; if (fn) paint(item.id, (c) => fn(c, item.color)); }
+  WALL_COLORS.forEach((hex, i) => paint(WALL_FACE_BASE + i, (c) => PAINTERS.wallFace(c, hex)));
   return canvas;
 }
 
 /** Representative colour per tile id, for the minimap and thumbnails. */
-export const TILE_COLORS: Record<number, string> = {
+export const TILE_COLORS: Record<number, string> = new Proxy({} as Record<number, string>, { get: (t, k) => (t as any)[k] ?? CATALOG_BY_ID.get(Number(k))?.color });
+Object.assign(TILE_COLORS, {
   [F.NONE]: "#0b1220", [F.WOOD]: "#c99a6b", [F.WOOD_DARK]: "#7a4a2b", [F.CARPET_BLUE]: "#4d6fc3", [F.CARPET_GREEN]: "#4c9f66",
   [F.CARPET_PURPLE]: "#7558bd", [F.RUG_RED]: "#b94d4a", [F.STONE]: "#d3d7dc", [F.GRASS]: "#6cbd5c", [F.PATH]: "#dac89f", [F.WATER]: "#3d86f0",
   [O.WALL]: "#6b7280", [O.DESK]: "#9a6232", [O.COMPUTER]: "#9a6232", [O.CHAIR]: "#4b5563", [O.BENCH]: "#a87340", [O.PLANT]: "#16a34a",
@@ -151,4 +165,4 @@ export const TILE_COLORS: Record<number, string> = {
   [O.PIANO]: "#111827", [O.FOUNTAIN]: "#60a5fa", [O.ARCADE]: "#dc2626", [O.WINDOW]: "#7fb7e8", [O.KITCHEN]: "#e5e7eb", [O.FRIDGE]: "#e5e7eb",
   [O.PRINTER]: "#d1d5db", [O.WATER_COOLER]: "#60a5fa", [O.RUG_ROUND]: "#ea580c", [O.SIGN]: "#f5e6c8", [O.VENDING]: "#dc2626", [O.CACTUS]: "#16a34a",
   [O.PAINTING]: "#8a5a2b", [O.LOCKER]: "#3b6ea5",
-};
+});

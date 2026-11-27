@@ -3,6 +3,8 @@ import Phaser from "phaser";
 import { TILE, F, O } from "../../shared/tiles";
 import type { MapData } from "../../shared/map";
 import { idx } from "../../shared/map";
+import { CATALOG_BY_ID } from "../../shared/catalog";
+const LIGHT_BASES: Record<string, [number, number]> = { floorLamp: [110, 0xffe9a8], lamp: [70, 0xffe9a8], lampPost: [120, 0xfff1b0], candle: [50, 0xffd9a0], fireplace: [110, 0xffb070], campfire: [100, 0xffb070], neon: [70, 0xff80d0], tvWall: [40, 0xbfe8ff], tvStand: [40, 0xbfe8ff], computer: [40, 0xbfe8ff], laptop: [35, 0xbfe8ff], arcade: [45, 0xbfe8ff], jukebox: [60, 0xffb0e0], slot: [50, 0xffe080], window: [60, 0xcfe3ff], aquarium: [45, 0xbfe8ff], atm: [35, 0xbfe8ff], server: [35, 0xa0ffc0] };
 
 export interface WeatherView { kind: string; temp: number; isDay: boolean; sunrise: string; sunset: string; timezone: string; city: string; source: string; humidity?: number; wind?: number }
 
@@ -63,6 +65,8 @@ export class Lighting {
       if (o === O.WINDOW) this.lights.push({ x: cx, y: cy + 16, r: 60, color: 0xcfe3ff });
       if (o === O.SPOTLIGHT) this.lights.push({ x: cx, y: cy, r: 80, color: 0xfff1b0 });
       if (o === O.FOUNTAIN) this.lights.push({ x: cx, y: cy, r: 50, color: 0xbfe8ff });
+      const cat = CATALOG_BY_ID.get(o);
+      if (cat && LIGHT_BASES[cat.base]) { const [rad, color] = LIGHT_BASES[cat.base]; this.lights.push({ x: cx, y: cy, r: rad, color }); }
     }
   }
   draw(darkness: number, players: { x: number; y: number }[], tint = 0xffffff) {

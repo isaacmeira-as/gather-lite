@@ -4,6 +4,7 @@ import { spaces } from "../api";
 import { F, O, FLOOR_NAMES, OBJECT_NAMES, TILE } from "../../shared/tiles";
 import { INTERACTABLE_KINDS } from "../../shared/map";
 import { drawTileset, TILESET_COLS } from "../textures/tiles";
+import { CATALOG, CATEGORIES, PALETTES, searchCatalog, Category } from "../../shared/catalog";
 import { $, esc, el, toast } from "./common";
 import type { OfficeScene } from "../scenes/OfficeScene";
 
@@ -11,6 +12,12 @@ type Tab = "objects" | "floor" | "zones" | "interactables" | "portals" | "maps";
 let tab: Tab = "objects";
 let tile: number = O.WALL;
 let tilesetCanvas: HTMLCanvasElement | null = null;
+let tilesetUrl = "";
+let objCat: Category | "all" | "basicos" = "all";
+let objQuery = "";
+let objColor = "";
+let recent: number[] = [];
+try { recent = JSON.parse(localStorage.getItem("gather-lite:recent-objects") ?? "[]"); } catch {}
 let scene: OfficeScene | null = null;
 let slug = "";
 let active = false;
@@ -70,20 +77,67 @@ function tileThumb(id: number) {
   return c;
 }
 
+function thumbStyle(id: number) {
+  tilesetCanvas ??= drawTileset(document.createElement("canvas"));
+  tilesetUrl ||= tilesetCanvas.toDataURL();
+  return `background-image:url(${tilesetUrl});background-position:-${(id % TILESET_COLS) * TILE}px -${Math.floor(id / TILESET_COLS) * TILE}px`;
+}
+function pick(id: number) {
+  tile = id;
+  recent = [id, ...recent.filter((r) => r !== id)].slice(0, 12);
+  try { localStorage.setItem("gather-lite:recent-objects", JSON.stringify(recent)); } catch {}
+  render();
+  bus.emit("ui:build", buildCfg());
+}
 function renderPalette(body: HTMLElement) {
-  body.appendChild(el(`<p class="muted small pad">Clique ou arraste para pintar. Botão direito apaga.</p>`));
-  const pal = el(`<div class="palette"></div>`);
-  const ids = tab === "floor" ? Object.values(F).filter((v) => v !== F.NONE) : Object.values(O);
-  const names = tab === "floor" ? FLOOR_NAMES : OBJECT_NAMES;
-  for (const id of ids) {
-    const b = document.createElement("button");
-    b.appendChild(tileThumb(id));
-    b.appendChild(document.createTextNode(names[id] ?? String(id)));
-    b.classList.toggle("active", id === tile);
-    b.addEventListener("click", () => { tile = id; render(); bus.emit("ui:build", buildCfg()); });
-    pal.appendChild(b);
+  if (tab === "floor") {
+    body.appendChild(el(`<p class="muted small pad">Clique ou arraste para pintar. Botão direito apaga.</p>`));
+    const pal = el(`<div class="palette"></div>`);
+    for (const id of Object.values(F).filter((v) => v !== F.NONE)) {
+      const b = el(`<button class="${id === tile ? "active" : ""}"><span class="thumb" style="${thumbStyle(id)}"></span>${esc(FLOOR_NAMES[id] ?? String(id))}</button>`);
+      b.addEventListener("click", () => pick(id));
+      pal.appendChild(b);
+    }
+    body.appendChild(pal);
+    return;
   }
-  body.appendChild(pal);
+  // ---- Sims-style object browser: categories, search, colour filter, recent
+  const head = el(`<div class="obj-head">
+    <div class="row"><input name="q" placeholder="Buscar entre ${CATALOG.length + Object.keys(OBJECT_NAMES).length - 1} objetos… (ex.: sofá azul)" value="${esc(objQuery)}" style="flex:1" /><select name="color"><option value="">todas as cores</option>${[...new Set(Object.values(PALETTES).flat().map((c) => c.name))].map((n) => `<option value="${esc(n)}" ${n === objColor ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></div>
+    <div class="cats"><button class="chip ${objCat === "all" ? "active" : ""}" data-cat="all">✨ Tudo</button><button class="chip ${objCat === "basicos" ? "active" : ""}" data-cat="basicos">🧩 Básicos</button>${CATEGORIES.map((c) => `<button class="chip ${objCat === c.id ? "active" : ""}" data-cat="${c.id}">${c.icon} ${c.label}</button>`).join("")}</div>
+    <div class="row sel"><span class="thumb" style="${thumbStyle(tile)}"></span><span class="muted small">Selecionado: <b>${esc(CATALOG.find((i) => i.id === tile)?.name ?? OBJECT_NAMES[tile] ?? String(tile))}</b></span></div>
+  </div>`);
+  const q = head.querySelector('[name="q"]') as HTMLInputElement;
+  q.addEventListener("keydown", (e) => e.stopPropagation());
+  let t: any; q.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { objQuery = q.value; renderGrid(); }, 120); });
+  (head.querySelector('[name="color"]') as HTMLSelectElement).addEventListener("change", (e) => { objColor = (e.target as HTMLSelectElement).value; renderGrid(); });
+  head.querySelectorAll<HTMLButtonElement>("[data-cat]").forEach((b) => b.addEventListener("click", () => { objCat = b.dataset.cat as any; head.querySelectorAll("[data-cat]").forEach((x) => x.classList.toggle("active", x === b)); renderGrid(); }));
+  body.appendChild(head);
+  const grid = el(`<div class="obj-grid"></div>`);
+  body.appendChild(grid);
+  const renderGrid = () => {
+    grid.innerHTML = "";
+    const legacy = Object.values(O).filter((id) => id !== O.NONE).map((id) => ({ id, name: OBJECT_NAMES[id] ?? String(id), search: (OBJECT_NAMES[id] ?? "").toLowerCase() }));
+    let items: { id: number; name: string }[];
+    if (objCat === "basicos") items = legacy.filter((i) => !objQuery || i.search.includes(objQuery.toLowerCase()));
+    else { items = searchCatalog(objQuery, objCat === "all" ? "all" : objCat, objColor || undefined); if (objCat === "all" && !objColor) items = [...legacy.filter((i) => !objQuery || i.search.includes(objQuery.toLowerCase())), ...items]; }
+    if (!objQuery && objCat === "all" && !objColor && recent.length) {
+      grid.appendChild(el(`<div class="obj-section">Recentes</div>`));
+      for (const id of recent) grid.appendChild(objButton(id, CATALOG.find((i) => i.id === id)?.name ?? OBJECT_NAMES[id] ?? String(id)));
+      grid.appendChild(el(`<div class="obj-section">Todos (${items.length})</div>`));
+    }
+    const frag = document.createDocumentFragment();
+    for (const it of items.slice(0, 600)) frag.appendChild(objButton(it.id, it.name));
+    grid.appendChild(frag);
+    if (items.length > 600) grid.appendChild(el(`<div class="obj-section muted">Mostrando 600 de ${items.length}. Refine a busca.</div>`));
+    if (!items.length) grid.appendChild(el(`<div class="obj-section muted">Nada encontrado.</div>`));
+  };
+  const objButton = (id: number, name: string) => {
+    const b = el(`<button class="obj ${id === tile ? "active" : ""}" title="${esc(name)}"><span class="thumb" style="${thumbStyle(id)}"></span></button>`);
+    b.addEventListener("click", () => pick(id));
+    return b;
+  };
+  renderGrid();
   const spawn = el(`<div class="pad"><button class="sm">📍 Definir spawn (clique no mapa)</button></div>`);
   spawn.querySelector("button")!.addEventListener("click", () => { bus.emit("ui:build", { ...buildCfg(), tool: "spawn" }); toast("Clique no tile onde as pessoas devem aparecer"); });
   body.appendChild(spawn);

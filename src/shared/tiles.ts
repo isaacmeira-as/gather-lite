@@ -1,4 +1,5 @@
 // Tile ids shared by server (collision) and client (rendering).
+import { CATALOG_BY_ID } from "./catalog";
 export const TILE = 32;
 
 // Floor layer
@@ -109,16 +110,25 @@ const SOLID_OBJECTS = new Set<number>([
 ]);
 
 /** Objects that visually sit on a wall (rendered with the wall face behind them). */
-export const WALL_MOUNTED = new Set<number>([O.WINDOW, O.PAINTING, O.WHITEBOARD, O.TV, O.SIGN]);
+const LEGACY_WALL_MOUNTED = new Set<number>([O.WINDOW, O.PAINTING, O.WHITEBOARD, O.TV, O.SIGN]);
+export const WALL_MOUNTED = { has: (id: number) => LEGACY_WALL_MOUNTED.has(id) || !!CATALOG_BY_ID.get(id)?.wall };
 /** Objects that are "tall": the player standing right below is drawn behind them. */
-export const TALL_OBJECTS = new Set<number>([O.WALL, O.WINDOW, O.TREE, O.BOOKSHELF, O.LOCKER, O.FRIDGE, O.VENDING, O.LAMP, O.PLANT]);
+const LEGACY_TALL = new Set<number>([O.WALL, O.WINDOW, O.TREE, O.BOOKSHELF, O.LOCKER, O.FRIDGE, O.VENDING, O.LAMP, O.PLANT]);
+export const TALL_OBJECTS = { has: (id: number) => LEGACY_TALL.has(id) || !!CATALOG_BY_ID.get(id)?.tall };
+/** Catalog walls (base "wall") behave like O.WALL for top/face rendering. */
+export const isWallLike = (id: number) => id === O.WALL || CATALOG_BY_ID.get(id)?.base === "wall";
 const SOLID_FLOORS = new Set<number>([F.NONE, F.WATER]);
 
 export function isSolid(floor: number, object: number): boolean {
-  return SOLID_FLOORS.has(floor) || SOLID_OBJECTS.has(object);
+  if (SOLID_FLOORS.has(floor)) return true;
+  const c = CATALOG_BY_ID.get(object);
+  if (c) return c.solid;
+  return SOLID_OBJECTS.has(object);
 }
 
-export const SITTABLE = new Set<number>([O.CHAIR, O.BENCH]);
+const LEGACY_SITTABLE = new Set<number>([O.CHAIR, O.BENCH]);
+export const SITTABLE = { has: (id: number) => LEGACY_SITTABLE.has(id) || !!CATALOG_BY_ID.get(id)?.sittable };
+export const isValidObject = (id: number) => id === 0 || (Object.values(O) as number[]).includes(id) || CATALOG_BY_ID.has(id);
 
 // Directions
 export const DIR = { DOWN: 0, LEFT: 1, RIGHT: 2, UP: 3 } as const;

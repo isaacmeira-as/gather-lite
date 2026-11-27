@@ -1,7 +1,7 @@
 import { Room, Client, ServerError } from "@colyseus/core";
 import { OfficeState, Player, ZoneS, InteractableS, PortalS } from "./OfficeState";
 import { MapData, stepTarget, zoneAt, canHear, isSpotlight, idx, inBounds, interactableNear, portalAt, normalizeMap, Zone, Interactable, Portal, INTERACTABLE_KINDS, isWalkable } from "../../shared/map";
-import { F, O, SITTABLE, DIR_DELTA } from "../../shared/tiles";
+import { F, O, SITTABLE, DIR_DELTA, isSolid, isValidObject } from "../../shared/tiles";
 import { ChatIn, ChatOut, BuildIn, STATUSES, EMOTES } from "../../shared/messages";
 import { normalizeAvatar } from "../../shared/avatar";
 import { userFromToken, AuthUser } from "../auth";
@@ -530,7 +530,7 @@ export class OfficeRoom extends Room<{ state: OfficeState }> {
       if (!Object.values(F).includes(msg.tile as any)) return;
       this.map.floor[i] = msg.tile; this.state.floor[i] = msg.tile;
     } else if (msg.layer === "objects") {
-      if (!Object.values(O).includes(msg.tile as any)) return;
+      if (!isValidObject(msg.tile)) return;
       this.map.objects[i] = msg.tile; this.state.objects[i] = msg.tile;
     } else return;
     for (const [sid, p] of this.state.players) {
